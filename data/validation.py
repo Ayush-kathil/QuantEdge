@@ -1,5 +1,7 @@
-"""Data validation and hygiene module for market time-series."""
+"""Data validation, fingerprinting, and hygiene module for market time-series."""
+import hashlib
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
 import numpy as np
@@ -7,12 +9,73 @@ import numpy as np
 
 @dataclass
 class ValidationResult:
-    """Encapsulates data validation diagnostics and status."""
+    """Encapsulates data validation diagnostics, cryptographic fingerprint, and hygiene status."""
     is_valid: bool
+    fingerprint_sha256: str = ""
     errors: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     cleaned_df: Optional[pd.DataFrame] = None
     stats: Dict[str, Any] = field(default_factory=dict)
+    gap_diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+
+def compute_dataset_fingerprint(df: pd.DataFrame) -> str:
+    """
+    Computes a deterministic SHA-256 cryptographic fingerprint over an OHLCV DataFrame.
+    
+    Hash captures:
+    - Sorted ISO timestamps
+    - Canonical 4-decimal rounded Open, High, Low, Close, Volume matrix
+    
+    Guarantees exact experimental reproducibility and tamper detection.
+    """
+    if df is None or df.empty:
+        return "empty_dataset"
+
+    hasher = hashlib.sha256()
+    # Sort index to ensure deterministic order
+    sorted_df = df.sort_index()
+
+    # Hash index
+    date_bytes = "".join(sorted_df.index.strftime("%Y-%m-%d")).encode("utf-8")
+    hasher.update(date_bytes)
+
+    # Hash OHLCV columns
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
+        if col in sorted_df.columns:
+            # Round to 4 decimals to avoid micro floating-point serialization jitter
+            col_vals = sorted_df[col].fillna(0.0).round(4).astype(str).tolist()
+            col_str = f"{col}:" + ",".join(col_vals)
+            hasher.update(col_str.encode("utf-8"))
+
+    return hasher.hexdigest()
+
+
+def detect_calendar_gaps(index: pd.DatetimeIndex, max_business_gap_days: int = 4) -> Dict[str, Any]:
+    """
+    Analyzes time-series for calendar gaps, weekends, and trading holidays.
+    """
+    if len(index) < 2:
+        return {"max_gap_days": 0, "suspicious_gaps": []}
+
+    diffs = (index[1:] - index[:-1]).days
+    max_gap = int(np.max(diffs)) if len(diffs) > 0 else 0
+
+    suspicious = []
+    for i, gap in enumerate(diffs):
+        # A gap > 4 calendar days usually implies an unscheduled market outage or missing data
+        if gap > max_business_gap_days:
+            suspicious.append({
+                "from_date": str(index[i].date()),
+                "to_date": str(index[i + 1].date()),
+                "calendar_gap_days": int(gap)
+            })
+
+    return {
+        "max_calendar_gap_days": max_gap,
+        "total_gaps_exceeding_threshold": len(suspicious),
+        "suspicious_gaps": suspicious[:10]  # Report top 10
+    }
 
 
 def validate_market_data(
@@ -35,6 +98,7 @@ def validate_market_data(
        - Prices strictly positive (> 0)
        - Volume non-negative (>= 0)
     4. Missing Value Assessment: Gaps and NaNs.
+    5. Cryptographic SHA-256 fingerprinting.
     
     Parameters:
         df: Input DataFrame
@@ -92,13 +156,13 @@ def validate_market_data(
     num_duplicates = working_df.index.duplicated().sum()
     stats["duplicate_timestamps"] = int(num_duplicates)
     if num_duplicates > 0:
-        warnings.append(f"Detected {num_duplicates} duplicate timestamps in index. Duplicates will be deduplicated.")
+        warnings.append(f"Detected {num_duplicates} duplicate timestamps in index. Duplicates deduplicated (preserving last).")
         if auto_clean:
             working_df = working_df[~working_df.index.duplicated(keep="last")]
 
     # Check monotonic ascending sort
     if not working_df.index.is_monotonic_increasing:
-        warnings.append("Timestamps were not sorted chronologically. Reordering in ascending sequence.")
+        warnings.append("Timestamps were not sorted chronologically. Reordered in ascending sequence.")
         if auto_clean:
             working_df = working_df.sort_index()
 
@@ -113,7 +177,6 @@ def validate_market_data(
     if total_nans > 0:
         warnings.append(f"Missing values detected across OHLCV columns: {nan_counts}")
         if auto_clean:
-            # Drop rows where all price columns are NaN, forward-fill isolated price drops
             working_df[required_cols] = working_df[required_cols].ffill()
             working_df = working_df.dropna(subset=["Close", "Open", "High", "Low"])
 
@@ -148,12 +211,18 @@ def validate_market_data(
             warnings.append(msg)
 
     if non_positive_prices > 0:
-        errors.append(f"Found {non_positive_prices} non-positive prices (<= 0), which violate financial continuity.")
+        errors.append(f"Found {non_positive_prices} non-positive prices (<= 0), violating financial continuity.")
 
     if negative_volume > 0:
-        warnings.append(f"Found {negative_volume} negative volume entries. Setting negative volumes to 0.")
+        warnings.append(f"Found {negative_volume} negative volume entries. Replaced negative volumes with 0.")
         if auto_clean:
             working_df.loc[working_df["Volume"] < 0, "Volume"] = 0.0
+
+    # 5. Gap diagnostics
+    gap_diag = detect_calendar_gaps(working_df.index)
+
+    # 6. Cryptographic fingerprint
+    fingerprint = compute_dataset_fingerprint(working_df)
 
     is_valid = len(errors) == 0
     stats["final_rows"] = len(working_df)
@@ -164,8 +233,10 @@ def validate_market_data(
 
     return ValidationResult(
         is_valid=is_valid,
+        fingerprint_sha256=fingerprint,
         errors=errors,
         warnings=warnings,
         cleaned_df=working_df if auto_clean and is_valid else (working_df if not strict_ohlc else None),
-        stats=stats
+        stats=stats,
+        gap_diagnostics=gap_diag
     )

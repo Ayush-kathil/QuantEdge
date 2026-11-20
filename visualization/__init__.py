@@ -9,6 +9,11 @@ from visualization.charts import (
     plot_drawdown_underwater,
     plot_trade_markers_on_price,
     plot_autocorrelation_bar,
+    plot_monte_carlo_fan,
+    plot_monte_carlo_drawdown_distribution,
+    plot_market_regimes,
+    plot_parameter_sensitivity_heatmap,
+    plot_friction_sensitivity,
     QUANT_THEME
 )
 from visualization.dashboard import (
@@ -27,6 +32,11 @@ __all__ = [
     "plot_drawdown_underwater",
     "plot_trade_markers_on_price",
     "plot_autocorrelation_bar",
+    "plot_monte_carlo_fan",
+    "plot_monte_carlo_drawdown_distribution",
+    "plot_market_regimes",
+    "plot_parameter_sensitivity_heatmap",
+    "plot_friction_sensitivity",
     "QUANT_THEME",
     "render_metric_card",
     "render_performance_summary_grid",

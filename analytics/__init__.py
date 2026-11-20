@@ -1,4 +1,4 @@
-"""Analytics package: returns, volatility, indicators, statistics, and risk modeling."""
+"""Analytics package: returns, volatility, indicators, statistics, risk, regimes, monte carlo, and reporting."""
 from analytics.returns import (
     compute_daily_returns,
     compute_cumulative_returns,
@@ -33,6 +33,24 @@ from analytics.risk import (
     compute_historical_var,
     compute_conditional_var
 )
+from analytics.monte_carlo import (
+    MonteCarloReport,
+    run_trade_monte_carlo,
+    run_daily_return_block_bootstrap
+)
+from analytics.regimes import (
+    RegimeClassification,
+    RegimePerformanceAttribution,
+    classify_market_regimes,
+    attribute_performance_by_regime
+)
+from analytics.reproducibility import (
+    ExperimentMetadata,
+    generate_experiment_manifest
+)
+from analytics.reporting import (
+    generate_pdf_research_report
+)
 
 __all__ = [
     "compute_daily_returns",
@@ -58,5 +76,15 @@ __all__ = [
     "compute_downside_deviation",
     "compute_parametric_var",
     "compute_historical_var",
-    "compute_conditional_var"
+    "compute_conditional_var",
+    "MonteCarloReport",
+    "run_trade_monte_carlo",
+    "run_daily_return_block_bootstrap",
+    "RegimeClassification",
+    "RegimePerformanceAttribution",
+    "classify_market_regimes",
+    "attribute_performance_by_regime",
+    "ExperimentMetadata",
+    "generate_experiment_manifest",
+    "generate_pdf_research_report",
 ]

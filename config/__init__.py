@@ -1,5 +1,7 @@
 """QuantEdge configuration module."""
 from config.settings import (
+    APP_VERSION,
+    PLATFORM_NAME,
     INSTRUMENT_CATALOG,
     DEFAULT_TRADING_DAYS_PER_YEAR,
     DEFAULT_RISK_FREE_RATE,
@@ -12,6 +14,8 @@ from config.settings import (
 )
 
 __all__ = [
+    "APP_VERSION",
+    "PLATFORM_NAME",
     "INSTRUMENT_CATALOG",
     "DEFAULT_TRADING_DAYS_PER_YEAR",
     "DEFAULT_RISK_FREE_RATE",

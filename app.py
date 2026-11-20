@@ -1,12 +1,13 @@
 """
 QuantEdge – Quantitative Market Research & Strategy Backtesting Platform
-An institutional-grade research platform for quantitative time-series analysis and strategy backtesting.
+An institutional-grade research platform for quantitative time-series analysis, walk-forward validation, and risk modeling.
 """
 import io
 import sys
 import os
+import json
 from typing import Optional, List, Dict, Any, Union, Tuple
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -26,6 +27,8 @@ if CURRENT_DIR not in sys.path:
     sys.path.insert(0, CURRENT_DIR)
 
 from config.settings import (
+    APP_VERSION,
+    PLATFORM_NAME,
     INSTRUMENT_CATALOG,
     DEFAULT_TRADING_DAYS_PER_YEAR,
     DEFAULT_RISK_FREE_RATE,
@@ -34,7 +37,7 @@ from config.settings import (
     DEFAULT_SLIPPAGE_BPS
 )
 from data.ingestion import MarketDataIngestion, MarketDataPayload
-from data.validation import validate_market_data
+from data.validation import validate_market_data, compute_dataset_fingerprint
 from analytics.returns import compute_daily_returns, compute_cumulative_returns, compute_excess_returns
 from analytics.volatility import (
     compute_realized_volatility,
@@ -53,11 +56,20 @@ from analytics.indicators import (
 )
 from analytics.statistics import compute_distribution_statistics, compute_correlation_matrix
 from analytics.risk import compute_drawdowns, compute_downside_deviation
+from analytics.monte_carlo import run_trade_monte_carlo, run_daily_return_block_bootstrap, MonteCarloReport
+from analytics.regimes import classify_market_regimes, attribute_performance_by_regime
+from analytics.reproducibility import generate_experiment_manifest
+from analytics.reporting import generate_pdf_research_report
 from strategies.moving_average import MovingAverageCrossover
 from strategies.rsi_strategy import RSIMeanReversion
 from strategies.breakout_strategy import DonchianBreakout
 from backtesting.engine import BacktestEngine, BacktestResult
-from backtesting.validation import run_out_of_sample_validation
+from backtesting.validation import (
+    run_out_of_sample_validation,
+    run_walk_forward_validation,
+    run_parameter_sensitivity_scan,
+    run_friction_sensitivity_analysis
+)
 from visualization.charts import (
     plot_market_explorer_candlestick,
     plot_returns_distribution,
@@ -67,6 +79,11 @@ from visualization.charts import (
     plot_drawdown_underwater,
     plot_trade_markers_on_price,
     plot_autocorrelation_bar,
+    plot_monte_carlo_fan,
+    plot_monte_carlo_drawdown_distribution,
+    plot_market_regimes,
+    plot_parameter_sensitivity_heatmap,
+    plot_friction_sensitivity,
     apply_quant_layout
 )
 
@@ -127,33 +144,15 @@ st.markdown("""
         margin-bottom: 14px;
     }
     
-    /* Table Styling */
-    .dataframe {
-        font-family: "JetBrains Mono", Consolas, monospace !important;
-        font-size: 0.85rem !important;
-    }
-    
-    /* Notification pills */
-    .quant-tag-bull {
-        color: #3FB950;
-        background-color: rgba(63, 185, 80, 0.15);
-        padding: 2px 8px;
+    /* Monospace Code and Hashes */
+    .quant-hash {
+        font-family: "JetBrains Mono", Consolas, monospace;
+        font-size: 0.78rem;
+        background-color: #161B22;
+        padding: 4px 8px;
         border-radius: 4px;
-        font-weight: 600;
-    }
-    .quant-tag-bear {
-        color: #F85149;
-        background-color: rgba(248, 81, 73, 0.15);
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-weight: 600;
-    }
-    .quant-tag-neutral {
-        color: #E3B341;
-        background-color: rgba(227, 179, 65, 0.15);
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-weight: 600;
+        border: 1px solid #30363D;
+        color: #79C0FF;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -162,11 +161,11 @@ st.markdown("""
 # ==============================================================================
 # SIDEBAR CONFIGURATION & DATA INGESTION CONTROLS
 # ==============================================================================
-st.sidebar.markdown("""
+st.sidebar.markdown(f"""
 <div style="padding-bottom: 12px;">
-    <span class="quant-header-badge">QUANTITATIVE PLATFORM</span>
+    <span class="quant-header-badge">RESEARCH PLATFORM v{APP_VERSION}</span>
     <h2 style="margin: 0; padding: 0; color: #58A6FF; font-size: 1.5rem; font-weight: 800;">QuantEdge</h2>
-    <p style="margin: 0; color: #8B949E; font-size: 0.8rem;">Market Research & Strategy Backtesting</p>
+    <p style="margin: 0; color: #8B949E; font-size: 0.8rem;">Quantitative Finance & Backtesting Engine</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -271,22 +270,33 @@ cum_returns = compute_cumulative_returns(daily_returns, method="arithmetic")
 
 
 # ==============================================================================
-# MAIN TERMINAL NAVIGATION (8 SPECIALIZED WORKSPACES)
+# MAIN TERMINAL NAVIGATION (9 SPECIALIZED WORKSPACES)
 # ==============================================================================
-tab_overview, tab_explorer, tab_stats, tab_indicators, tab_strategy, tab_backtest, tab_risk, tab_methodology = st.tabs([
+(
+    tab_overview,
+    tab_explorer,
+    tab_stats,
+    tab_indicators,
+    tab_strategy,
+    tab_backtest,
+    tab_regimes,
+    tab_risk,
+    tab_methodology
+) = st.tabs([
     "📊 Terminal Overview",
     "📈 Market Explorer",
     "🔬 Statistical Analysis",
     "📐 Technical Indicators",
     "🧪 Strategy Lab",
-    "⚡ Backtesting Engine",
-    "🛡️ Risk Analytics",
-    "📚 Methodology & Notes"
+    "⚡ Advanced Backtesting",
+    "🌐 Market Regimes",
+    "🛡️ Risk & Monte Carlo",
+    "📚 Methodology & Dossier"
 ])
 
 
 # ------------------------------------------------------------------------------
-# TAB 1: OVERVIEW
+# TAB 1: OVERVIEW & PROVENANCE
 # ------------------------------------------------------------------------------
 with tab_overview:
     st.markdown(f"### {active_symbol} — Quantitative Market Research Overview")
@@ -294,8 +304,8 @@ with tab_overview:
     
     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     with col_t1:
-        st.caption("ASSET CLASS")
-        st.markdown(f"**{meta.get('asset_class', 'Market Security')}**")
+        st.caption("ASSET CLASS & TYPE")
+        st.markdown(f"**{market_payload.instrument_type}**")
     with col_t2:
         st.caption("PRIMARY VENUE")
         st.markdown(f"**{meta.get('exchange', 'Exchange')}**")
@@ -303,8 +313,8 @@ with tab_overview:
         st.caption("OBSERVATION WINDOW")
         st.markdown(f"**{market_payload.start_date} → {market_payload.end_date}**")
     with col_t4:
-        st.caption("DATA SOURCE")
-        st.markdown(f"**{market_payload.source}**")
+        st.caption("DATA FRESHNESS STATUS")
+        st.markdown(f"**{market_payload.data_freshness_status}**")
 
     st.markdown("---")
     
@@ -323,24 +333,27 @@ with tab_overview:
     m4.metric("Historical Max Drawdown", f"-{dd_summary.max_drawdown * 100:.2f}%")
     m5.metric("Total Trading Bars", f"{len(df_market):,}")
 
-    st.markdown('<div class="section-title">Executive Research Summary</div>', unsafe_allow_html=True)
-    col_sum1, col_sum2 = st.columns([2, 1])
-    with col_sum1:
+    st.markdown('<div class="section-title">Audited Data Provenance & Integrity</div>', unsafe_allow_html=True)
+    col_prov1, col_prov2 = st.columns([3, 2])
+    with col_prov1:
         st.markdown(f"""
-        This dashboard presents an uncompromised quantitative evaluation of **{active_symbol}** ({meta.get('name', active_symbol)}).
+        **Dataset Cryptographic Fingerprint (SHA-256):**  
+        <span class="quant-hash">{market_payload.dataset_fingerprint}</span>
         
-        **Methodological Highlights:**
-        - **No Look-Ahead Leakage:** All signals generated at bar $t$ are executed strictly at bar $t+1$ Open with realistic frictions.
-        - **Microstructure Realism:** Transaction fees of **{commission_bps_input:.1f} bps** and adverse slippage of **{slippage_bps_input:.1f} bps** applied to every round-trip.
-        - **Auditable Hygiene:** Automated OHLC integrity verification, monotonic chronological sorting, and deduplication applied to all raw feeds.
-        """)
-    with col_sum2:
+        **Financial Structure Disclosures:**
+        - **Data Mode:** Historical End-of-Day (EOD) archive (*Never mislabeled as zero-latency real-time tick stream*).
+        - **Corporate Actions:** {market_payload.corporate_action_notes}
+        - **Continuous Futures Limitations:** {market_payload.futures_rollover_notes}
+        """, unsafe_allow_html=True)
+    with col_prov2:
+        gaps = market_payload.validation.gap_diagnostics
         st.info(f"""
-        **Data Hygiene Report**
-        - Ingested Rows: `{len(df_market)}`
+        **Data Hygiene Diagnostics**
+        - Ingested Bars: `{len(df_market)}`
         - Missing Price Cells: `{sum(market_payload.validation.stats.get('nan_counts', {}).values())}`
         - Duplicate Bars Removed: `{market_payload.validation.stats.get('duplicate_timestamps', 0)}`
-        - OHLC Inconsistencies: `{market_payload.validation.stats.get('high_lt_low_violations', 0)}`
+        - Max Calendar Gap: `{gaps.get('max_calendar_gap_days', 0)} days`
+        - Suspicious Outages (>4d): `{gaps.get('total_gaps_exceeding_threshold', 0)}`
         """)
 
     st.plotly_chart(
@@ -526,7 +539,6 @@ with tab_strategy:
     
     st.markdown(f"**Strategy Architecture:** {active_strategy.description}")
     
-    # Signal timeline chart
     fig_sig = apply_quant_layout(
         go.Figure(go.Scatter(x=signals_output.index, y=signals_output["signal"], mode="lines", name="Position Signal", line={"color": "#58A6FF", "width": 1.5})),
         f"{active_strategy.name} Signal Sequence (+1 = Long, 0 = Flat, -1 = Short)",
@@ -540,7 +552,7 @@ with tab_strategy:
 
 
 # ------------------------------------------------------------------------------
-# TAB 6: BACKTESTING ENGINE & MULTI-STRATEGY COMPARISON
+# TAB 6: ADVANCED BACKTESTING & WALK-FORWARD VALIDATION
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown('<div class="section-title">Discrete-Event Backtesting & Benchmark Engine</div>', unsafe_allow_html=True)
@@ -588,6 +600,14 @@ with tab_backtest:
     p5.metric("Max Drawdown", f"-{m_strat.max_drawdown * 100:.2f}%", delta=f"-{(m_strat.max_drawdown - m_bm.max_drawdown)*100:.2f}%", delta_color="inverse")
     p6.metric("Win Rate", f"{m_strat.win_rate * 100:.1f}%", f"{m_strat.winning_trades}W / {m_strat.losing_trades}L")
 
+    # Benchmark-Relative Metrics row
+    b_c1, b_c2, b_c3, b_c4, b_c5 = st.columns(5)
+    b_c1.metric("Beta vs Benchmark", f"{m_strat.beta:.2f}")
+    b_c2.metric("Jensen's Alpha (Ann.)", f"{m_strat.alpha_annualized * 100:+.2f}%")
+    b_c3.metric("Information Ratio", f"{m_strat.information_ratio:.2f}")
+    b_c4.metric("Tracking Error", f"{m_strat.tracking_error * 100:.2f}%")
+    b_c5.metric("Up / Down Capture", f"{m_strat.up_capture*100:.0f}% / {m_strat.down_capture*100:.0f}%")
+
     # Multi-Equity curves
     st.plotly_chart(
         plot_equity_curves(all_results, active_backtest_res.benchmark_equity_curve, title=f"{active_symbol} Multi-Strategy Backtest vs Buy & Hold Benchmark"),
@@ -605,9 +625,6 @@ with tab_backtest:
     # Strategy Comparison Table
     st.markdown("#### Institutional Strategy Benchmark Comparison")
     comp_rows = []
-    headers = ["Strategy", "Ending Equity", "Total Return", "CAGR", "Sharpe", "Sortino", "Max DD", "Win Rate", "Trades", "Profit Factor", "Market Exp."]
-    
-    # Add Buy & Hold
     comp_rows.append({
         "Strategy": "Buy & Hold Benchmark",
         "Ending Equity": f"${m_bm.ending_capital:,.2f}",
@@ -616,9 +633,11 @@ with tab_backtest:
         "Sharpe": f"{m_bm.sharpe_ratio:.2f}",
         "Sortino": f"{m_bm.sortino_ratio:.2f}",
         "Max DD": f"{m_bm.max_drawdown*100:.2f}%",
+        "Beta": "1.00",
+        "Alpha (Ann.)": "0.00%",
+        "Info Ratio": "N/A",
         "Win Rate": "N/A",
         "Trades": 1,
-        "Profit Factor": "N/A",
         "Market Exp.": "100.0%"
     })
     for s_name, s_res in all_results.items():
@@ -631,9 +650,11 @@ with tab_backtest:
             "Sharpe": f"{sm.sharpe_ratio:.2f}",
             "Sortino": f"{sm.sortino_ratio:.2f}",
             "Max DD": f"{sm.max_drawdown*100:.2f}%",
+            "Beta": f"{sm.beta:.2f}",
+            "Alpha (Ann.)": f"{sm.alpha_annualized*100:+.2f}%",
+            "Info Ratio": f"{sm.information_ratio:.2f}",
             "Win Rate": f"{sm.win_rate*100:.1f}%",
             "Trades": sm.total_trades,
-            "Profit Factor": f"{sm.profit_factor:.2f}" if not np.isinf(sm.profit_factor) else "Inf",
             "Market Exp.": f"{sm.market_exposure*100:.1f}%"
         })
     df_comp = pd.DataFrame(comp_rows)
@@ -673,35 +694,123 @@ with tab_backtest:
                 file_name=f"{active_symbol}_strategy_metrics.csv",
                 mime="text/csv"
             )
-    else:
-        st.info("No closed trades generated by this strategy over the selected date range.")
 
-    # In-Sample / Out-of-Sample Validation Section
-    st.markdown('<div class="section-title">Chronological Out-of-Sample (OOS) Validation</div>', unsafe_allow_html=True)
-    st.caption("Splits data chronologically (70% In-Sample training, 30% Out-of-Sample testing) to test parameter robustness and detect overfitting.")
+    # Walk-Forward Validation & Robustness Diagnostics
+    st.markdown('<div class="section-title">Walk-Forward Multi-Fold Chronological Validation</div>', unsafe_allow_html=True)
+    st.caption("Partitions dataset into sequential chronological folds. Evaluates out-of-sample persistence and computes Walk-Forward Efficiency (WFE).")
     
-    if len(df_market) >= 60:
-        val_report = run_out_of_sample_validation(df_market, active_strategy, engine, train_ratio=0.70, symbol=active_symbol)
-        
-        c_v1, c_v2 = st.columns([1, 1])
-        with c_v1:
-            st.markdown(f"**In-Sample Window:** `{val_report.train_start}` → `{val_report.train_end}`")
-            st.markdown(f"**Out-of-Sample Window:** `{val_report.test_start}` → `{val_report.test_end}`")
-        with c_v2:
-            if val_report.is_overfit_suspected:
-                st.error("⚠️ Overfitting / Degradation Detected in Out-of-Sample Period:")
-                for flag in val_report.diagnostic_flags:
-                    st.write(f"- {flag}")
-            else:
-                st.success("✅ Robust Parameter Behavior: Out-of-Sample performance maintained consistency without severe Sharpe collapse.")
+    wf_splits = st.slider("Number of Walk-Forward Folds", min_value=2, max_value=6, value=3)
+    wf_report: Optional[Any] = None
 
-        st.dataframe(pd.DataFrame(val_report.comparison_summary), use_container_width=True, hide_index=True)
+    if len(df_market) >= 120:
+        try:
+            wf_report = run_walk_forward_validation(
+                df=df_market,
+                strategy_factory=lambda: MovingAverageCrossover(20, 50) if "MA" in chosen_strat_name else (RSIMeanReversion(14, 30, 70) if "RSI" in chosen_strat_name else DonchianBreakout(20, 10)),
+                engine=engine,
+                n_splits=int(wf_splits),
+                train_ratio=0.65,
+                symbol=active_symbol
+            )
+            
+            w_c1, w_c2, w_c3 = st.columns(3)
+            w_c1.metric("Walk-Forward Efficiency (WFE)", f"{wf_report.walk_forward_efficiency*100:.1f}%")
+            w_c2.metric("OOS Positive Consistency", f"{wf_report.consistency_rate*100:.0f}%")
+            w_c3.metric("Robustness Assessment", wf_report.robustness_rating)
+
+            st.dataframe(wf_report.summary_df, use_container_width=True, hide_index=True)
+
+            if wf_report.warnings:
+                for w in wf_report.warnings:
+                    st.warning(f"⚠️ {w}")
+        except Exception as e:
+            st.warning(f"Could not compute walk-forward folds: {e}")
     else:
-        st.warning("Insufficient data points (< 60 bars) for meaningful out-of-sample chronological partitioning.")
+        st.warning("Insufficient historical bars (<120) for multi-fold walk-forward validation.")
+
+    # Parameter & Friction Sensitivity Section
+    st.markdown('<div class="section-title">Parameter & Microstructure Sensitivity Auditing</div>', unsafe_allow_html=True)
+    col_sens1, col_sens2 = st.columns(2)
+    
+    with col_sens1:
+        st.markdown("**Parameter Grid Scan (Moving Average)**")
+        if st.button("Run 16-Cell MA Sensitivity Scan"):
+            grid = []
+            for s in [10, 15, 20, 25]:
+                for l in [40, 50, 60, 75]:
+                    grid.append({"short_period": s, "long_period": l, "ma_type": "SMA"})
+            with st.spinner("Scanning parameter surface..."):
+                scan_res = run_parameter_sensitivity_scan(
+                    df=df_market,
+                    strategy_builder=lambda p: MovingAverageCrossover(**p),
+                    engine=engine,
+                    param_grid=grid,
+                    symbol=active_symbol
+                )
+                st.plotly_chart(
+                    plot_parameter_sensitivity_heatmap(scan_res, "short_period", "long_period", "Sharpe_Ratio", title="MA Parameter Sensitivity (Sharpe Ratio)"),
+                    use_container_width=True,
+                    key="param_sens_heatmap"
+                )
+
+    with col_sens2:
+        st.markdown("**Transaction Drag & Slippage Sensitivity**")
+        if st.button("Audit Friction Breakeven Curve"):
+            with st.spinner("Simulating execution frictions..."):
+                friction_res = run_friction_sensitivity_analysis(
+                    df=df_market,
+                    strategy=active_strategy,
+                    base_engine=engine,
+                    commissions_bps=[0.0, 2.5, 5.0, 10.0, 15.0, 25.0],
+                    slippages_bps=[0.0, 2.0, 5.0, 10.0],
+                    symbol=active_symbol
+                )
+                st.plotly_chart(
+                    plot_friction_sensitivity(friction_res, title=f"{chosen_strat_name} Sharpe Resilience vs Friction Drag"),
+                    use_container_width=True,
+                    key="friction_sens_chart"
+                )
 
 
 # ------------------------------------------------------------------------------
-# TAB 7: RISK ANALYTICS
+# TAB 7: MARKET REGIMES
+# ------------------------------------------------------------------------------
+with tab_regimes:
+    st.markdown('<div class="section-title">Statistical Market Regime Deconstruction</div>', unsafe_allow_html=True)
+    st.caption("Segments market history into Volatility Regimes (High / Normal / Low) and Trend Regimes (Bull / Bear / Range-Bound) using transparent statistical rules.")
+
+    market_regimes = classify_market_regimes(df_market, vol_lookback=60, trend_ma_period=50)
+
+    st.plotly_chart(
+        plot_market_regimes(df_market, market_regimes, active_symbol),
+        use_container_width=True,
+        key="market_regimes_chart"
+    )
+
+    # Attribution Breakdown
+    st.markdown("#### Strategy Performance Attribution by Market Regime")
+    regime_attr = attribute_performance_by_regime(
+        daily_strategy_returns=active_backtest_res.daily_returns,
+        daily_benchmark_returns=active_backtest_res.benchmark_daily_returns,
+        regimes=market_regimes,
+        trading_days=int(trading_days_input)
+    )
+
+    reg_col1, reg_col2 = st.columns(2)
+    with reg_col1:
+        st.markdown("**Volatility Regimes Breakdown**")
+        st.dataframe(regime_attr.volatility_attribution, use_container_width=True, hide_index=True)
+    with reg_col2:
+        st.markdown("**Trend Regimes Breakdown**")
+        st.dataframe(regime_attr.trend_attribution, use_container_width=True, hide_index=True)
+
+    st.markdown("**Regime Behavior Insights:**")
+    for ins in regime_attr.insights:
+        st.markdown(f"- {ins}")
+
+
+# ------------------------------------------------------------------------------
+# TAB 8: RISK & MONTE CARLO SIMULATION
 # ------------------------------------------------------------------------------
 with tab_risk:
     st.markdown('<div class="section-title">Risk Analytics & Drawdown Decomposition</div>', unsafe_allow_html=True)
@@ -722,14 +831,7 @@ with tab_risk:
     r_c3.metric("Max Drawdown Duration", f"{dd_strat.max_drawdown_duration_days} days")
     r_c4.metric("Current Drawdown", f"-{dd_strat.current_drawdown * 100:.2f}%")
 
-    st.markdown(f"""
-    **Drawdown Anatomy:**
-    - **Peak Date:** `{dd_strat.max_drawdown_peak_date}`
-    - **Trough Date:** `{dd_strat.max_drawdown_trough_date}`
-    - **Recovery Date:** `{dd_strat.max_drawdown_recovery_date}`
-    """)
-
-    # Rolling Volatility Multi-Estimators
+    # Multi-Estimator Volatility Dynamics
     st.markdown('<div class="section-title">Multi-Estimator Volatility Dynamics</div>', unsafe_allow_html=True)
     st.plotly_chart(
         plot_rolling_volatility_comparison(daily_returns, df_market, active_symbol, window=21),
@@ -737,11 +839,104 @@ with tab_risk:
         key="risk_rolling_volatility"
     )
 
+    # Monte Carlo Risk Analysis Section
+    st.markdown('<div class="section-title">Monte Carlo Resampling & Risk of Ruin Analysis</div>', unsafe_allow_html=True)
+    st.caption("Simulates 1,000 independent equity trajectories via trade-level empirical bootstrapping with replacement.")
+
+    mc_report = run_trade_monte_carlo(
+        trades=active_backtest_res.trades,
+        initial_capital=float(initial_capital_input),
+        num_simulations=1000,
+        seed=42
+    )
+
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Median Simulated Ending Equity", f"${mc_report.terminal_equity_median:,.2f}")
+    mc2.metric("Worst 5% Outcome (P05)", f"${mc_report.terminal_percentiles['5%']:,.2f}")
+    mc3.metric("P(Drawdown >= 20%)", f"{mc_report.probability_of_ruin_20pct * 100:.1f}%")
+    mc4.metric("P(Drawdown >= 30%)", f"{mc_report.probability_of_ruin_30pct * 100:.1f}%")
+
+    col_mc1, col_mc2 = st.columns(2)
+    with col_mc1:
+        st.plotly_chart(
+            plot_monte_carlo_fan(mc_report, title=f"{chosen_strat_name} Monte Carlo Trajectory Fan (5th to 95th Percentile)"),
+            use_container_width=True,
+            key="monte_carlo_fan"
+        )
+    with col_mc2:
+        st.plotly_chart(
+            plot_monte_carlo_drawdown_distribution(mc_report),
+            use_container_width=True,
+            key="monte_carlo_dd_dist"
+        )
+
+    with st.expander("Methodological Assumptions of Monte Carlo Simulation"):
+        for a in mc_report.resampling_assumptions:
+            st.markdown(f"- {a}")
+
 
 # ------------------------------------------------------------------------------
-# TAB 8: ABOUT & METHODOLOGY (INTERNSHIP & FUTURES FIRST PREP)
+# TAB 9: METHODOLOGY, DOSSIER & REPRODUCIBILITY
 # ------------------------------------------------------------------------------
 with tab_methodology:
+    st.markdown('<div class="section-title">Institutional Research Dossier & Experiment Manifest</div>', unsafe_allow_html=True)
+
+    col_rep1, col_rep2 = st.columns(2)
+    
+    with col_rep1:
+        st.markdown("#### 📄 Export Institutional PDF Dossier")
+        st.caption("Generates a publication-grade PDF report containing provenance, distribution moments, strategy scorecards, walk-forward diagnostics, and risk disclosures.")
+        
+        pdf_bytes = generate_pdf_research_report(
+            backtest_result=active_backtest_res,
+            dist_stats=dist_stats,
+            dataset_fingerprint=market_payload.dataset_fingerprint,
+            data_source=market_payload.source,
+            instrument_type=market_payload.instrument_type,
+            corporate_action_notes=market_payload.corporate_action_notes,
+            futures_rollover_notes=market_payload.futures_rollover_notes,
+            monte_carlo_report=mc_report,
+            walk_forward_summary=wf_report.summary_df if wf_report is not None else None,
+            experiment_id=f"EXP-{active_symbol}-{datetime.now().strftime('%Y%m%d')}"
+        )
+        
+        st.download_button(
+            label="⬇️ Download Institutional PDF Research Report",
+            data=pdf_bytes,
+            file_name=f"QuantEdge_{active_symbol}_{chosen_strat_name.replace(' ', '_')}_Report.pdf",
+            mime="application/pdf"
+        )
+
+    with col_rep2:
+        st.markdown("#### 📋 Cryptographic Reproducibility Manifest (JSON)")
+        st.caption("Export exact audit trail with dataset SHA-256 hash, parameters, friction settings, and software version.")
+        
+        manifest = generate_experiment_manifest(
+            symbol=active_symbol,
+            dataset_fingerprint=market_payload.dataset_fingerprint,
+            data_source=market_payload.source,
+            date_start=market_payload.start_date,
+            date_end=market_payload.end_date,
+            row_count=len(df_market),
+            strategy_name=chosen_strat_name,
+            strategy_params=active_backtest_res.metrics.to_dict(),
+            initial_capital=float(initial_capital_input),
+            commission_bps=float(commission_bps_input),
+            slippage_bps=float(slippage_bps_input),
+            execution_mode=exec_mode_input,
+            risk_free_rate=float(rf_rate_input),
+            trading_days=int(trading_days_input),
+            validation_type=f"Walk-Forward {wf_splits}-Fold" if wf_report else "Out-of-Sample",
+            metrics_dict=active_backtest_res.metrics.to_dict()
+        )
+        
+        st.download_button(
+            label="⬇️ Export Reproducibility Manifest (JSON)",
+            data=manifest.to_json(),
+            file_name=f"{manifest.experiment_id}_manifest.json",
+            mime="application/json"
+        )
+
     st.markdown('<div class="section-title">Academic & Institutional Methodology Guide</div>', unsafe_allow_html=True)
 
     st.markdown(r"""
@@ -768,7 +963,13 @@ with tab_methodology:
       $$\sigma_{\text{GK}} = \sqrt{\frac{252}{N} \sum_{i=1}^N \left[ 0.5 \left(\ln \frac{H_i}{L_i}\right)^2 - (2\ln 2 - 1) \left(\ln \frac{C_i}{O_i}\right)^2 \right]}$$
       *Approx. 8x more efficient than standard realized volatility by incorporating overnight jumps and intraday extremes.*
       
-    #### C. Risk-Adjusted Performance Ratios
+    #### C. Benchmark-Relative Performance Ratios
+    - **Jensen's Alpha (Annualized):**
+      $$\alpha = \bar{R}_{\text{strategy}} \times 252 - \left[R_f + \beta (\bar{R}_{\text{benchmark}} \times 252 - R_f)\right]$$
+    - **Beta:**
+      $$\beta = \frac{\text{Cov}(R_{\text{strategy}}, R_{\text{benchmark}})}{\text{Var}(R_{\text{benchmark}})}$$
+    - **Information Ratio:**
+      $$\text{IR} = \frac{(\bar{R}_{\text{strategy}} - \bar{R}_{\text{benchmark}}) \times 252}{\sigma(R_{\text{strategy}} - R_{\text{benchmark}}) \times \sqrt{252}}$$
     - **Sharpe Ratio:**
       $$\text{Sharpe} = \frac{\bar{R}_{\text{excess}} \times 252}{\sigma_{\text{ann}}}$$
     - **Sortino Ratio (Downside Semi-Deviation):**
@@ -789,11 +990,11 @@ with tab_methodology:
        
     2. **Data Snooping & Multiple Testing:**
        - Tuning strategy parameters repeatedly on the same historical sample leads to spurious discoveries (Harvey, Liu, Zhu 2016).
-       - We provide **Chronological Train/Test Partitioning (70% / 30%)** to audit parameter degradation without shuffling time order.
+       - We provide **Chronological Train/Test Partitioning** and **Multi-Fold Walk-Forward Validation** to audit parameter degradation without shuffling time order.
        
-    3. **Survivorship Bias:**
-       - When selecting historical instruments, testing only companies that survived to the present date inflates returns. 
-       - Always backtest on continuous futures contracts or broad composite indices (`^GSPC`, `SPY`).
+    3. **Survivorship Bias & Futures Rollover:**
+       - Stitched continuous futures (`GC=F`, `CL=F`) contain unadjusted roll yield gaps upon contract transition.
+       - Cash ETFs (`SPY`, `QQQ`) incorporate management expense ratios and cash dividends.
        
     4. **Transaction Costs & Slippage Realism:**
        - High-turnover strategies that appear wildly profitable with zero costs frequently collapse under realistic execution drag.

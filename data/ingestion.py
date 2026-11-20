@@ -1,9 +1,9 @@
-"""Market data ingestion module supporting Yahoo Finance API and CSV file imports."""
+"""Market data ingestion module supporting Yahoo Finance API, CSV file imports, and provenance auditing."""
 import io
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Optional, Union, Dict, Any, List
+from datetime import datetime, date, timezone
+from typing import Optional, Union, Dict, Any, List, Tuple
 import pandas as pd
 import yfinance as yf
 
@@ -16,7 +16,7 @@ logger = logging.getLogger("QuantEdge.DataIngestion")
 
 @dataclass
 class MarketDataPayload:
-    """Standardized container for ingested market time-series and ingestion metadata."""
+    """Standardized container for ingested market time-series and audited provenance metadata."""
     ticker: str
     df: pd.DataFrame
     source: str
@@ -25,15 +25,35 @@ class MarketDataPayload:
     end_date: str
     row_count: int
     validation: ValidationResult
+    dataset_fingerprint: str
+    data_freshness_status: str
+    calendar_lag_days: int
+    instrument_type: str
+    corporate_action_notes: str
+    futures_rollover_notes: str
+    is_realtime: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class MarketDataIngestion:
-    """Ingests market time-series from real-time / historical Yahoo Finance or user CSVs."""
+    """Ingests market time-series from historical Yahoo Finance or user CSVs with provenance tracking."""
 
     def __init__(self, cache_enabled: bool = True, cache_expiry_hours: int = DEFAULT_CACHE_EXPIRY_HOURS):
         self.cache_enabled = cache_enabled
         self.cache = MarketDataCache(CACHE_DIR, cache_expiry_hours) if cache_enabled else None
+
+    def _assess_freshness(self, last_date: pd.Timestamp) -> Tuple[str, int]:
+        """Calculates lag between most recent bar and current UTC date."""
+        today = datetime.now(timezone.utc).date()
+        bar_date = last_date.date() if hasattr(last_date, "date") else last_date
+        lag = (today - bar_date).days
+        if lag <= 1:
+            status = "Recent EOD Close (Delayed by Exchange / Provider)"
+        elif lag <= 4:
+            status = f"Current Weekend / Short Lag ({lag} days)"
+        else:
+            status = f"Historical EOD Archive (Stale / Historical: {lag} days lag)"
+        return status, max(0, lag)
 
     def fetch_yfinance(
         self,
@@ -54,10 +74,7 @@ class MarketDataIngestion:
             strict_ohlc: Whether OHLC anomalies raise errors or warnings
             
         Returns:
-            MarketDataPayload with validated DataFrame and metadata.
-            
-        Raises:
-            ValueError: When ticker is invalid, market data is completely empty, or network fails.
+            MarketDataPayload with validated DataFrame, fingerprint, and provenance metadata.
         """
         ticker_sym = ticker.strip().upper()
         s_str = start_date.strftime("%Y-%m-%d") if isinstance(start_date, (date, datetime)) else str(start_date)
@@ -69,16 +86,26 @@ class MarketDataIngestion:
             if cached_df is not None and not cached_df.empty:
                 val_res = validate_market_data(cached_df, strict_ohlc=strict_ohlc)
                 if val_res.is_valid:
+                    clean_df = val_res.cleaned_df if val_res.cleaned_df is not None else cached_df
+                    catalog_entry = INSTRUMENT_CATALOG.get(ticker_sym, {})
+                    freshness_status, lag_days = self._assess_freshness(clean_df.index[-1])
                     return MarketDataPayload(
                         ticker=ticker_sym,
-                        df=val_res.cleaned_df if val_res.cleaned_df is not None else cached_df,
-                        source="Local Cache (yfinance)",
-                        retrieval_timestamp=datetime.now(),
+                        df=clean_df,
+                        source="Local Cache (yfinance EOD)",
+                        retrieval_timestamp=datetime.now(timezone.utc),
                         start_date=s_str,
                         end_date=e_str,
-                        row_count=len(val_res.cleaned_df or cached_df),
+                        row_count=len(clean_df),
                         validation=val_res,
-                        metadata=INSTRUMENT_CATALOG.get(ticker_sym, {})
+                        dataset_fingerprint=val_res.fingerprint_sha256,
+                        data_freshness_status=freshness_status,
+                        calendar_lag_days=lag_days,
+                        instrument_type=catalog_entry.get("instrument_type", "Standard Security"),
+                        corporate_action_notes=catalog_entry.get("corporate_actions", "Standard corporate action adjustments apply."),
+                        futures_rollover_notes=catalog_entry.get("futures_rollover_notes", "Not applicable."),
+                        is_realtime=False,
+                        metadata=catalog_entry
                     )
 
         # Download from yfinance
@@ -102,9 +129,7 @@ class MarketDataIngestion:
 
         # Handle MultiIndex columns that modern yfinance produces
         if isinstance(raw_data.columns, pd.MultiIndex):
-            # Try to grab the first level or match OHLCV
             try:
-                # If ticker is level 1
                 if ticker_sym in raw_data.columns.get_level_values(1):
                     raw_data = raw_data.xs(ticker_sym, axis=1, level=1)
                 elif raw_data.columns.nlevels == 2:
@@ -124,23 +149,35 @@ class MarketDataIngestion:
         if self.cache_enabled and self.cache is not None:
             self.cache.set(ticker_sym, s_str, e_str, clean_df, interval)
 
-        instrument_info = INSTRUMENT_CATALOG.get(ticker_sym, {
+        catalog_entry = INSTRUMENT_CATALOG.get(ticker_sym, {
             "name": ticker_sym,
             "asset_class": "Custom Asset",
+            "instrument_type": "Custom User Symbol",
             "exchange": "Various",
-            "description": f"Custom user-selected instrument ({ticker_sym})"
+            "description": f"Custom user-selected instrument ({ticker_sym})",
+            "corporate_actions": "Verify with external source whether splits or dividends are applied.",
+            "futures_rollover_notes": "Continuous contracts may contain unadjusted roll gaps."
         })
+
+        freshness_status, lag_days = self._assess_freshness(clean_df.index[-1])
 
         return MarketDataPayload(
             ticker=ticker_sym,
             df=clean_df,
-            source="Yahoo Finance API (yfinance)",
-            retrieval_timestamp=datetime.now(),
+            source="Yahoo Finance API (EOD Archive)",
+            retrieval_timestamp=datetime.now(timezone.utc),
             start_date=s_str,
             end_date=e_str,
             row_count=len(clean_df),
             validation=val_res,
-            metadata=instrument_info
+            dataset_fingerprint=val_res.fingerprint_sha256,
+            data_freshness_status=freshness_status,
+            calendar_lag_days=lag_days,
+            instrument_type=catalog_entry.get("instrument_type", "Standard Security"),
+            corporate_action_notes=catalog_entry.get("corporate_actions", "Standard corporate action rules apply."),
+            futures_rollover_notes=catalog_entry.get("futures_rollover_notes", "Not applicable."),
+            is_realtime=False,
+            metadata=catalog_entry
         )
 
     def load_csv(
@@ -151,14 +188,6 @@ class MarketDataIngestion:
     ) -> MarketDataPayload:
         """
         Parses and validates an uploaded or local CSV file containing OHLCV price history.
-        
-        Parameters:
-            file_or_path: Local filepath or file-like object (e.g. from Streamlit file_uploader)
-            ticker_name: Identifier label for the custom asset
-            strict_ohlc: Whether OHLC inequalities trigger errors or warnings
-            
-        Returns:
-            MarketDataPayload
         """
         try:
             df = pd.read_csv(file_or_path)
@@ -180,7 +209,6 @@ class MarketDataIngestion:
             df = df.dropna(subset=[date_col])
             df = df.set_index(date_col)
         else:
-            # Try parsing first column as date index
             first_col = df.columns[0]
             try:
                 df[first_col] = pd.to_datetime(df[first_col])
@@ -199,18 +227,28 @@ class MarketDataIngestion:
         s_date = str(clean_df.index[0].date())
         e_date = str(clean_df.index[-1].date())
 
+        freshness_status, lag_days = self._assess_freshness(clean_df.index[-1])
+
         return MarketDataPayload(
             ticker=ticker_name,
             df=clean_df,
-            source="User Uploaded CSV",
-            retrieval_timestamp=datetime.now(),
+            source="User Uploaded Offline CSV",
+            retrieval_timestamp=datetime.now(timezone.utc),
             start_date=s_date,
             end_date=e_date,
             row_count=len(clean_df),
             validation=val_res,
+            dataset_fingerprint=val_res.fingerprint_sha256,
+            data_freshness_status=freshness_status,
+            calendar_lag_days=lag_days,
+            instrument_type="User CSV Time-Series",
+            corporate_action_notes="User-supplied series. Verify if dividend reinvestment or split adjustment is embedded in prices.",
+            futures_rollover_notes="Check if series reflects cash spot or stitched futures contracts.",
+            is_realtime=False,
             metadata={
                 "name": ticker_name,
                 "asset_class": "User Uploaded Series",
+                "instrument_type": "Custom CSV File",
                 "exchange": "Custom File",
                 "description": "Custom CSV dataset supplied by user"
             }

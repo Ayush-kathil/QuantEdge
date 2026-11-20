@@ -1,4 +1,4 @@
-"""Comprehensive quantitative performance and risk metrics computation."""
+"""Comprehensive quantitative performance, risk, and benchmark-relative metrics computation."""
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import numpy as np
@@ -31,6 +31,13 @@ class PerformanceMetrics:
     max_drawdown_duration_days: int
     risk_free_rate_used: float
     trading_days_used: int
+    beta: float = 0.0
+    alpha_annualized: float = 0.0
+    tracking_error: float = 0.0
+    information_ratio: float = 0.0
+    treynor_ratio: float = 0.0
+    up_capture: float = 0.0
+    down_capture: float = 0.0
     notes: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -45,6 +52,12 @@ class PerformanceMetrics:
             "Sortino Ratio": f"{self.sortino_ratio:.2f}" if not np.isnan(self.sortino_ratio) else "N/A",
             "Max Drawdown": f"{self.max_drawdown * 100.0:.2f}%",
             "Calmar Ratio": f"{self.calmar_ratio:.2f}" if not np.isnan(self.calmar_ratio) else "N/A",
+            "Beta vs Benchmark": f"{self.beta:.2f}",
+            "Alpha vs Benchmark (Ann.)": f"{self.alpha_annualized * 100.0:.2f}%",
+            "Information Ratio": f"{self.information_ratio:.2f}" if not np.isnan(self.information_ratio) else "N/A",
+            "Tracking Error": f"{self.tracking_error * 100.0:.2f}%",
+            "Treynor Ratio": f"{self.treynor_ratio:.2f}" if not np.isnan(self.treynor_ratio) and abs(self.beta) > 0.01 else "N/A",
+            "Up / Down Capture": f"{self.up_capture*100.0:.1f}% / {self.down_capture*100.0:.1f}%",
             "Win Rate": f"{self.win_rate * 100.0:.1f}%",
             "Profit Factor": f"{self.profit_factor:.2f}" if not np.isinf(self.profit_factor) and not np.isnan(self.profit_factor) else ("Inf (Zero Losses)" if np.isinf(self.profit_factor) else "N/A"),
             "Total Trades": self.total_trades,
@@ -60,17 +73,19 @@ def calculate_performance_metrics(
     equity_curve: pd.Series,
     daily_returns: pd.Series,
     trades: List[Trade],
+    benchmark_returns: Optional[pd.Series] = None,
     risk_free_rate: float = 0.04,
     trading_days: int = 252,
     position_series: Optional[pd.Series] = None
 ) -> PerformanceMetrics:
     """
-    Computes rigorous backtest performance metrics.
+    Computes rigorous backtest performance and benchmark-relative metrics.
     
     Parameters:
         equity_curve: Daily portfolio valuation series
         daily_returns: Daily portfolio percentage returns series
         trades: List of closed round-trip Trade objects
+        benchmark_returns: Optional benchmark daily returns for Beta/Alpha/IR calculations
         risk_free_rate: Annualized risk-free rate assumption (default 4.0%)
         trading_days: Trading day convention (default 252)
         position_series: Series of positions (+1, -1, 0) for exposure calculation
@@ -126,7 +141,6 @@ def calculate_performance_metrics(
 
     # Sharpe Ratio
     if vol_ann > 1e-6:
-        # Annualized mean excess return / Annualized volatility
         mean_excess_ann = float(excess_rets.mean() * trading_days)
         sharpe = mean_excess_ann / vol_ann
     else:
@@ -149,6 +163,50 @@ def calculate_performance_metrics(
         calmar = cagr / mdd
     else:
         calmar = np.nan
+
+    # Benchmark-Relative Metrics
+    beta = 0.0
+    alpha_ann = 0.0
+    tracking_err = 0.0
+    info_ratio = 0.0
+    treynor = 0.0
+    up_capture = 1.0
+    down_capture = 1.0
+
+    if benchmark_returns is not None and not benchmark_returns.empty:
+        # Align series by index
+        aligned = pd.concat([daily_returns, benchmark_returns], axis=1, join="inner").dropna()
+        if len(aligned) > 5:
+            r_s = aligned.iloc[:, 0].to_numpy()
+            r_b = aligned.iloc[:, 1].to_numpy()
+
+            var_b = np.var(r_b, ddof=1)
+            if var_b > 1e-8:
+                cov_sb = np.cov(r_s, r_b)[0, 1]
+                beta = float(cov_sb / var_b)
+                # Annualized Jensen's Alpha = E(Rs)*252 - (Rf + beta * (E(Rb)*252 - Rf))
+                mean_s_ann = float(np.mean(r_s) * trading_days)
+                mean_b_ann = float(np.mean(r_b) * trading_days)
+                alpha_ann = mean_s_ann - (risk_free_rate + beta * (mean_b_ann - risk_free_rate))
+
+                # Treynor Ratio
+                if abs(beta) > 0.01:
+                    treynor = (mean_s_ann - risk_free_rate) / beta
+
+            # Tracking error and Information Ratio
+            diff = r_s - r_b
+            te_daily = float(np.std(diff, ddof=1))
+            tracking_err = te_daily * np.sqrt(trading_days)
+            if tracking_err > 1e-6:
+                info_ratio = float(np.mean(diff) * trading_days) / tracking_err
+
+            # Up / Down Market Capture
+            up_mask = r_b > 0
+            down_mask = r_b < 0
+            if up_mask.sum() > 2 and np.mean(r_b[up_mask]) > 1e-6:
+                up_capture = float(np.mean(r_s[up_mask]) / np.mean(r_b[up_mask]))
+            if down_mask.sum() > 2 and abs(np.mean(r_b[down_mask])) > 1e-6:
+                down_capture = float(np.mean(r_s[down_mask]) / np.mean(r_b[down_mask]))
 
     # Trade-Level Statistics
     num_trades = len(trades)
@@ -213,5 +271,12 @@ def calculate_performance_metrics(
         max_drawdown_duration_days=dd_res.max_drawdown_duration_days,
         risk_free_rate_used=risk_free_rate,
         trading_days_used=trading_days,
+        beta=beta,
+        alpha_annualized=alpha_ann,
+        tracking_error=tracking_err,
+        information_ratio=info_ratio,
+        treynor_ratio=treynor,
+        up_capture=up_capture,
+        down_capture=down_capture,
         notes=notes
     )

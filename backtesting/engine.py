@@ -1,4 +1,4 @@
-"""Discrete-event backtesting engine with realistic microstructure simulation."""
+"""Discrete-event backtesting engine with realistic microstructure simulation and audited balance sheet accounting."""
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Literal
 import numpy as np
@@ -33,13 +33,28 @@ class BacktestResult:
 
 class BacktestEngine:
     """
-    Simulation engine enforcing realistic execution timing and cost drag.
+    Simulation engine enforcing realistic execution timing, cost drag, and exact balance-sheet conservation.
     
     Execution Paradigm:
         - Signal generated at close of bar t (using prices <= t).
         - In 'next_open' mode (default), trade executes at Open of bar t+1 with slippage and commission.
         - In 'next_close' mode, trade executes at Close of bar t+1.
         - Look-ahead bias is strictly prevented: bar t's signal never executes at bar t's price.
+        
+    Accounting Equations:
+        - When Long:
+            Cash decreases by (Notional_Entry + Fee)
+            Assets = Cash + Shares * Close
+            Liability = 0
+            MTM Equity = Assets
+        - When Short:
+            Cash increases by (Notional_Entry - Fee)  [Short sale proceeds held in cash balance]
+            Assets = Cash
+            Liability = |Shares| * Close             [Value to buy back borrowed shares]
+            MTM Equity = Cash - |Shares| * Close
+        - When Flat:
+            Assets = Cash, Liability = 0
+            MTM Equity = Cash
     """
 
     def __init__(
@@ -98,12 +113,12 @@ class BacktestEngine:
         closed_trades: List[Trade] = []
         trade_counter = 1
 
-        # Track active trade entry
-        open_trade_entry = None  # (entry_date, entry_price, shares, entry_cost, direction, entry_bar_idx)
+        # Track active trade entry: (entry_date, entry_price, shares, entry_cost, direction, entry_bar_idx)
+        open_trade_entry = None
 
         # Simulation Loop
         for i in range(n_bars):
-            # Price used for end-of-bar portfolio valuation
+            # Price used for end-of-bar portfolio mark-to-market valuation
             c_price = float(signals_df["Close"].iloc[i])
 
             # Check if an execution order was queued from previous bar's signal
@@ -131,12 +146,12 @@ class BacktestEngine:
 
                         if direction == "LONG":
                             gross_pnl = entry_shares * (fill_exit_price - entry_price)
-                            proceeds = (entry_shares * fill_exit_price) - exit_cost
+                            proceeds = notional_exit - exit_cost
                             current_cash += proceeds
                         else:  # SHORT
                             gross_pnl = abs(entry_shares) * (entry_price - fill_exit_price)
-                            # Repay borrowed short value
-                            current_cash += gross_pnl - exit_cost
+                            # Repurchase borrowed shares: deduct cost to cover and commission
+                            current_cash -= (notional_exit + exit_cost)
 
                         net_pnl = gross_pnl - entry_cost - exit_cost
                         invested_capital = abs(entry_shares) * entry_price
@@ -169,10 +184,10 @@ class BacktestEngine:
                         entry_side = "BUY" if direction == "LONG" else "SELL"
                         fill_entry_price = self.execution_model.calculate_execution_price(base_exec_price, entry_side)
 
-                        # Sizing: Allocate available capital
+                        # Available equity at the moment of entry is current_cash
                         avail_equity = current_cash
                         if avail_equity > 0 and fill_entry_price > 0:
-                            # Reserve 0.2% buffer for fees and fractional shares
+                            # Reserve 0.2% buffer for fees and fractional rounding
                             alloc_capital = avail_equity * 0.998
                             target_shares = alloc_capital / fill_entry_price
                             notional_entry = target_shares * fill_entry_price
@@ -182,7 +197,8 @@ class BacktestEngine:
                                 current_cash -= (notional_entry + entry_cost)
                                 current_shares = target_shares
                             else:  # SHORT
-                                current_cash -= entry_cost  # Short margin
+                                # Receive short sale proceeds, pay entry commission
+                                current_cash += (notional_entry - entry_cost)
                                 current_shares = -target_shares
 
                             current_state = prev_target_signal
@@ -194,14 +210,14 @@ class BacktestEngine:
             shares_arr[i] = current_shares
             cash_arr[i] = current_cash
 
-            # Total mark-to-market portfolio value
+            # Exact Mark-to-Market Portfolio Value
             if current_state == 1:
+                # Long: Cash + Shares * Close
                 mv = current_cash + (current_shares * c_price)
             elif current_state == -1 and open_trade_entry is not None:
-                # Short mark to market: cash + pnl
-                _, entry_p, s_shares, _, _, _ = open_trade_entry
-                short_pnl = abs(s_shares) * (entry_p - c_price)
-                mv = current_cash + (abs(s_shares) * entry_p) + short_pnl
+                # Short: Cash - Liability to buy back borrowed shares
+                short_liability = abs(current_shares) * c_price
+                mv = current_cash - short_liability
             else:
                 mv = current_cash
 
@@ -240,11 +256,12 @@ class BacktestEngine:
             duration_bars=n_bars
         )]
 
-        # Calculate metrics
+        # Calculate metrics (including benchmark-relative metrics)
         strat_metrics = calculate_performance_metrics(
             equity_curve=equity_curve,
             daily_returns=daily_returns,
             trades=closed_trades,
+            benchmark_returns=bm_returns,
             risk_free_rate=self.risk_free_rate,
             trading_days=self.trading_days,
             position_series=positions
@@ -254,6 +271,7 @@ class BacktestEngine:
             equity_curve=bm_equity,
             daily_returns=bm_returns,
             trades=bm_trade,
+            benchmark_returns=bm_returns,
             risk_free_rate=self.risk_free_rate,
             trading_days=self.trading_days,
             position_series=pd.Series(1, index=dates)

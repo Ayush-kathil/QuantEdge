@@ -414,3 +414,176 @@ def plot_autocorrelation_bar(autocorr_dict: Dict[int, float]) -> go.Figure:
     apply_quant_layout(fig, "Return Autocorrelation Function (ACF)", height=350)
     fig.update_yaxes(title_text="Autocorrelation Coefficient", range=[-0.25, 0.25])
     return fig
+
+
+
+def plot_monte_carlo_fan(mc_report: Any, title: str = "Monte Carlo Simulated Equity Trajectories") -> go.Figure:
+    """Plots Monte Carlo percentile fan chart (5th to 95th percentile)."""
+    fig = go.Figure()
+    trajs = mc_report.percentile_equity_trajectories
+    steps = len(trajs["50th"])
+    x_axis = np.arange(steps)
+
+    # Shaded 5th - 95th band
+    fig.add_trace(go.Scatter(
+        x=x_axis,
+        y=trajs["95th"],
+        mode="lines",
+        line={"width": 0},
+        showlegend=False,
+        hoverinfo="skip"
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_axis,
+        y=trajs["5th"],
+        mode="lines",
+        fill="tonexty",
+        fillcolor="rgba(0, 229, 255, 0.12)",
+        line={"width": 0},
+        name="90% Confidence Interval (5th-95th %ile)"
+    ))
+
+    # Shaded 25th - 75th band (Interquartile Range)
+    fig.add_trace(go.Scatter(
+        x=x_axis,
+        y=trajs["75th"],
+        mode="lines",
+        line={"width": 0},
+        showlegend=False,
+        hoverinfo="skip"
+    ))
+    fig.add_trace(go.Scatter(
+        x=x_axis,
+        y=trajs["25th"],
+        mode="lines",
+        fill="tonexty",
+        fillcolor="rgba(0, 229, 255, 0.25)",
+        line={"width": 0},
+        name="Interquartile Range (25th-75th %ile)"
+    ))
+
+    # Median (50th percentile)
+    fig.add_trace(go.Scatter(
+        x=x_axis,
+        y=trajs["50th"],
+        mode="lines",
+        name="Median Trajectory (50th %ile)",
+        line={"color": QUANT_THEME["accent_cyan"], "width": 2.5}
+    ))
+
+    # Baseline initial capital
+    fig.add_hline(y=mc_report.initial_capital, line_dash="dash", line_color="#888888", annotation_text="Initial Capital")
+
+    apply_quant_layout(fig, title, height=450)
+    fig.update_xaxes(title_text="Trade Sequence Step")
+    fig.update_yaxes(title_text="Portfolio Equity ($)", tickformat="$,.0f")
+    return fig
+
+
+def plot_monte_carlo_drawdown_distribution(mc_report: Any) -> go.Figure:
+    """Plots histogram of Monte Carlo maximum drawdowns with ruin thresholds."""
+    fig = go.Figure()
+    mdds_pct = mc_report.max_drawdown_distribution * 100.0
+
+    fig.add_trace(go.Histogram(
+        x=mdds_pct,
+        name="Simulated Max DD",
+        marker_color="rgba(255, 61, 0, 0.55)",
+        marker_line={"color": QUANT_THEME["bear_color"], "width": 1},
+        nbinsx=40
+    ))
+
+    fig.add_vline(x=20.0, line_dash="dash", line_color="#FFD600",
+                  annotation_text=f"20% DD Risk: {mc_report.probability_of_ruin_20pct*100:.1f}%")
+    fig.add_vline(x=30.0, line_dash="dash", line_color="#FF9100",
+                  annotation_text=f"30% DD Risk: {mc_report.probability_of_ruin_30pct*100:.1f}%")
+    fig.add_vline(x=mc_report.p95_max_drawdown * 100.0, line_dash="dot", line_color=QUANT_THEME["bear_color"],
+                  annotation_text=f"95th %ile Worst DD: {mc_report.p95_max_drawdown*100.0:.1f}%")
+
+    apply_quant_layout(fig, f"Monte Carlo Maximum Drawdown Distribution ({mc_report.num_simulations} Runs)", height=400)
+    fig.update_xaxes(title_text="Simulated Maximum Drawdown (%)")
+    fig.update_yaxes(title_text="Frequency")
+    return fig
+
+
+def plot_market_regimes(df: pd.DataFrame, regimes: Any, ticker: str) -> go.Figure:
+    """Visualizes market price history tagged with statistical volatility and trend regimes."""
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.7, 0.3],
+        subplot_titles=[f"{ticker} Price & Trend Regimes", "Volatility Regimes (High / Normal / Low)"]
+    )
+
+    # Row 1: Price colored or annotated
+    fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name=f"{ticker} Close", line={"color": "#FFFFFF", "width": 1.5}), row=1, col=1)
+
+    # 50 SMA overlay
+    sma50 = df["Close"].rolling(50).mean()
+    fig.add_trace(go.Scatter(x=df.index, y=sma50, mode="lines", name="50-day Regime SMA", line={"color": QUANT_THEME["accent_amber"], "width": 1.2, "dash": "dash"}), row=1, col=1)
+
+    # Row 2: Volatility Regime bands
+    vol_map = {"LOW_VOL": 0, "NORMAL_VOL": 1, "HIGH_VOL": 2}
+    vol_num = [vol_map.get(s, 1) for s in regimes.volatility_regime]
+
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=vol_num,
+        mode="lines",
+        name="Volatility State",
+        line={"color": QUANT_THEME["accent_cyan"], "width": 1.5}
+    ), row=2, col=1)
+
+    fig.update_yaxes(tickvals=[0, 1, 2], ticktext=["Low Vol", "Normal Vol", "High Vol"], row=2, col=1)
+
+    apply_quant_layout(fig, f"{ticker} Statistical Market Regime Deconstruction", height=500)
+    return fig
+
+
+def plot_parameter_sensitivity_heatmap(
+    scan_df: pd.DataFrame,
+    x_col: str,
+    y_col: str,
+    z_col: str = "Sharpe_Ratio",
+    title: str = "Parameter Sensitivity Heatmap"
+) -> go.Figure:
+    """Creates a 2D parameter sensitivity heatmap."""
+    pivot = scan_df.pivot(index=y_col, columns=x_col, values=z_col)
+
+    fig = go.Figure(data=go.Heatmap(
+        z=pivot.values,
+        x=pivot.columns.astype(str),
+        y=pivot.index.astype(str),
+        colorscale="Viridis",
+        colorbar={"title": z_col.replace("_", " ")}
+    ))
+
+    apply_quant_layout(fig, title, height=450)
+    fig.update_xaxes(title_text=x_col.replace("_", " "))
+    fig.update_yaxes(title_text=y_col.replace("_", " "))
+    return fig
+
+
+def plot_friction_sensitivity(friction_df: pd.DataFrame, title: str = "Transaction Cost & Slippage Resilience") -> go.Figure:
+    """Plots strategy Sharpe degradation across total friction drag (bps)."""
+    fig = go.Figure()
+
+    # Group by total friction and take average Sharpe
+    grouped = friction_df.groupby("Total_Friction_bps")["Sharpe_Ratio"].mean().reset_index()
+
+    fig.add_trace(go.Scatter(
+        x=grouped["Total_Friction_bps"],
+        y=grouped["Sharpe_Ratio"],
+        mode="lines+markers",
+        name="Sharpe vs Friction",
+        line={"color": QUANT_THEME["accent_cyan"], "width": 2.5},
+        marker={"size": 8, "color": QUANT_THEME["accent_amber"]}
+    ))
+
+    fig.add_hline(y=0.0, line_dash="dash", line_color=QUANT_THEME["bear_color"], annotation_text="Breakeven Zero-Alpha Threshold")
+
+    apply_quant_layout(fig, title, height=380)
+    fig.update_xaxes(title_text="Total Execution Drag (Commission + Slippage in bps)")
+    fig.update_yaxes(title_text="Annualized Sharpe Ratio")
+    return fig
