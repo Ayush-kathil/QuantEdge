@@ -18,13 +18,12 @@ from reportlab.platypus import (
 )
 
 from config.settings import APP_VERSION, PLATFORM_NAME
-from backtesting.engine import BacktestResult
 from analytics.statistics import DistributionStats
 from analytics.monte_carlo import MonteCarloReport
 
 
 def generate_pdf_research_report(
-    backtest_result: BacktestResult,
+    backtest_result: Any,
     dist_stats: DistributionStats,
     dataset_fingerprint: str,
     data_source: str,
@@ -33,6 +32,7 @@ def generate_pdf_research_report(
     futures_rollover_notes: str,
     monte_carlo_report: Optional[MonteCarloReport] = None,
     walk_forward_summary: Optional[pd.DataFrame] = None,
+    futures_summary: Optional[Dict[str, Any]] = None,
     experiment_id: str = "QEDGE-REPORT"
 ) -> bytes:
     """
@@ -245,6 +245,29 @@ def generate_pdf_research_report(
             ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
         ]))
         story.append(mc_table)
+        story.append(Spacer(1, 8))
+
+    # SECTION 5.5: FUTURES SPECIFICATIONS & MARGIN ACCOUNTING (IF PRESENT)
+    if futures_summary is not None:
+        story.append(Paragraph("<b>Futures Contract Specifications & Margin Accounting</b>", h1_style))
+        fut_data = [
+            [Paragraph("<b>Contract Spec:</b>", body_style), Paragraph(str(futures_summary.get("name", "Futures")), body_style),
+             Paragraph("<b>Lot Multiplier:</b>", body_style), Paragraph(str(futures_summary.get("multiplier", "1.0")), body_style)],
+            [Paragraph("<b>Tick Size / Value:</b>", body_style), Paragraph(f"{futures_summary.get('tick_size', 0.05)} / {futures_summary.get('tick_value', 1.0)}", body_style),
+             Paragraph("<b>Margin Requirement:</b>", body_style), Paragraph(f"Init: {futures_summary.get('initial_margin_rate', 0.1)*100:.1f}% | Maint: {futures_summary.get('maintenance_margin_rate', 0.08)*100:.1f}%", body_style)],
+            [Paragraph("<b>Leveraged Futures P&L:</b>", body_style), Paragraph(str(futures_summary.get("net_profit", "N/A")), body_style),
+             Paragraph("<b>Margin Calls:</b>", body_style), Paragraph(str(futures_summary.get("margin_calls", 0)), body_style)],
+            [Paragraph("<b>Structural Caveat:</b>", body_style), Paragraph(str(futures_summary.get("stitching_caveats", "Continuous proxy")), body_style),
+             Paragraph("<b>Rollover Schedule:</b>", body_style), Paragraph(str(futures_summary.get("rollover_cycle", "Standard")), body_style)]
+        ]
+        fut_table = Table(fut_data, colWidths=[130, 140, 130, 140])
+        fut_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), table_bg_light),
+            ("GRID", (0, 0), (-1, -1), 0.5, table_border),
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ]))
+        story.append(fut_table)
         story.append(Spacer(1, 8))
 
     # SECTION 6: MODEL RISK & LIMITATIONS

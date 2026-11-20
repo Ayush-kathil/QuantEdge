@@ -9,35 +9,55 @@ from backtesting.execution import Trade
 from analytics.statistics import DistributionStats
 
 
-# Professional quantitative styling template
-QUANT_THEME = {
-    "bg_color": "#0E1117",
-    "paper_color": "#0E1117",
-    "grid_color": "#262730",
+# Professional quantitative styling templates
+QUANT_THEME_DARK = {
+    "bg_color": "#0B111E",
+    "paper_color": "#0B111E",
+    "grid_color": "#1E2E4A",
     "font_family": "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
-    "font_color": "#FAFAFA",
-    "bull_color": "#00C853",
-    "bear_color": "#FF3D00",
-    "accent_cyan": "#00E5FF",
-    "accent_amber": "#FFD600",
-    "accent_purple": "#7C4DFF",
-    "benchmark_color": "#9E9E9E"
+    "font_color": "#F8FAFC",
+    "bull_color": "#10B981",
+    "bear_color": "#EF4444",
+    "accent_cyan": "#06B6D4",
+    "accent_blue": "#3B82F6",
+    "accent_amber": "#F59E0B",
+    "accent_purple": "#8B5CF6",
+    "benchmark_color": "#94A3B8"
 }
 
+QUANT_THEME_LIGHT = {
+    "bg_color": "#F8FAFC",
+    "paper_color": "#FFFFFF",
+    "grid_color": "#E2E8F0",
+    "font_family": "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+    "font_color": "#0F172A",
+    "bull_color": "#059669",
+    "bear_color": "#DC2626",
+    "accent_cyan": "#0891B2",
+    "accent_blue": "#2563EB",
+    "accent_amber": "#D97706",
+    "accent_purple": "#7C3AED",
+    "benchmark_color": "#64748B"
+}
 
-def apply_quant_layout(fig: go.Figure, title: str, height: int = 500) -> go.Figure:
-    """Applies clean financial terminal theme to Plotly figures."""
+QUANT_THEME = QUANT_THEME_DARK
+
+
+def apply_quant_layout(fig: go.Figure, title: str, height: int = 500, theme: str = "dark") -> go.Figure:
+    """Applies clean institutional financial terminal theme to Plotly figures."""
+    th = QUANT_THEME_LIGHT if theme == "light" else QUANT_THEME_DARK
+    template = "plotly_white" if theme == "light" else "plotly_dark"
     fig.update_layout(
         title={
             "text": f"<b>{title}</b>",
-            "font": {"size": 16, "color": QUANT_THEME["font_color"], "family": QUANT_THEME["font_family"]},
+            "font": {"size": 15, "color": th["font_color"], "family": th["font_family"]},
             "x": 0.02,
             "y": 0.96
         },
-        template="plotly_dark",
-        paper_bgcolor=QUANT_THEME["paper_color"],
-        plot_bgcolor=QUANT_THEME["bg_color"],
-        font={"family": QUANT_THEME["font_family"], "color": QUANT_THEME["font_color"], "size": 12},
+        template=template,
+        paper_bgcolor=th["paper_color"],
+        plot_bgcolor=th["bg_color"],
+        font={"family": th["font_family"], "color": th["font_color"], "size": 12},
         height=height,
         margin={"l": 40, "r": 30, "t": 60, "b": 40},
         hovermode="x unified",
@@ -50,8 +70,8 @@ def apply_quant_layout(fig: go.Figure, title: str, height: int = 500) -> go.Figu
             "font": {"size": 11}
         }
     )
-    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=QUANT_THEME["grid_color"], zeroline=False)
-    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=QUANT_THEME["grid_color"], zeroline=False)
+    fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor=th["grid_color"], zeroline=False)
+    fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor=th["grid_color"], zeroline=False)
     return fig
 
 
@@ -586,4 +606,207 @@ def plot_friction_sensitivity(friction_df: pd.DataFrame, title: str = "Transacti
     apply_quant_layout(fig, title, height=380)
     fig.update_xaxes(title_text="Total Execution Drag (Commission + Slippage in bps)")
     fig.update_yaxes(title_text="Annualized Sharpe Ratio")
+    return fig
+
+
+def plot_futures_margin_and_equity(
+    sim_result: Any,
+    title: str = "Futures Marked-to-Market Equity & Margin Dynamics",
+    theme: str = "dark"
+) -> go.Figure:
+    """Plots futures account equity, daily cash, variation margin, and initial margin requirements."""
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.7, 0.3],
+        subplot_titles=["Marked-to-Market Equity vs Required Margin", "Daily Variation Margin (Settlement P&L)"]
+    )
+
+    dates = sim_result.daily_equity_curve.index
+
+    # Equity Curve
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=sim_result.daily_equity_curve,
+        mode="lines",
+        name=f"Account Equity ({sim_result.spec.currency})",
+        line={"color": QUANT_THEME["accent_cyan"], "width": 2.0}
+    ), row=1, col=1)
+
+    # Initial Margin Requirement line
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=sim_result.daily_margin_required,
+        mode="lines",
+        name="Initial Margin Required",
+        line={"color": QUANT_THEME["accent_amber"], "width": 1.2, "dash": "dot"}
+    ), row=1, col=1)
+
+    # Daily Variation Margin bars
+    vm = sim_result.daily_variation_margin
+    colors = np.where(vm >= 0, QUANT_THEME["bull_color"], QUANT_THEME["bear_color"])
+    fig.add_trace(go.Bar(
+        x=dates,
+        y=vm,
+        name="Variation Margin",
+        marker_color=colors
+    ), row=2, col=1)
+
+    apply_quant_layout(fig, title, height=520, theme=theme)
+    fig.update_yaxes(title_text=f"Capital ({sim_result.spec.currency})", row=1, col=1)
+    fig.update_yaxes(title_text="Daily VM", row=2, col=1)
+    return fig
+
+
+def plot_efficient_frontier(
+    opt_result: Any,
+    title: str = "Markowitz Modern Portfolio Theory: Efficient Frontier",
+    theme: str = "dark"
+) -> go.Figure:
+    """Plots the Markowitz efficient frontier with highlighted optimal portfolios."""
+    fig = go.Figure()
+
+    # Frontier line
+    if opt_result.efficient_frontier_vols:
+        fig.add_trace(go.Scatter(
+            x=[v * 100.0 for v in opt_result.efficient_frontier_vols],
+            y=[r * 100.0 for r in opt_result.efficient_frontier_rets],
+            mode="lines",
+            name="Efficient Frontier",
+            line={"color": QUANT_THEME["accent_cyan"], "width": 2.5}
+        ))
+
+    # Maximum Sharpe Ratio Portfolio
+    fig.add_trace(go.Scatter(
+        x=[opt_result.max_sharpe_volatility * 100.0],
+        y=[opt_result.max_sharpe_return * 100.0],
+        mode="markers",
+        name=f"Max Sharpe ({opt_result.max_sharpe_ratio:.2f})",
+        marker={"size": 14, "color": QUANT_THEME["bull_color"], "symbol": "star"}
+    ))
+
+    # Minimum Variance Portfolio
+    fig.add_trace(go.Scatter(
+        x=[opt_result.min_var_volatility * 100.0],
+        y=[opt_result.min_var_return * 100.0],
+        mode="markers",
+        name=f"Min Variance ({opt_result.min_var_volatility*100.0:.1f}% Vol)",
+        marker={"size": 12, "color": QUANT_THEME["accent_amber"], "symbol": "diamond"}
+    ))
+
+    # Equal Weight Portfolio
+    fig.add_trace(go.Scatter(
+        x=[opt_result.equal_weight_volatility * 100.0],
+        y=[opt_result.equal_weight_return * 100.0],
+        mode="markers",
+        name=f"Equal Weight ({opt_result.equal_weight_sharpe_ratio:.2f} Sharpe)",
+        marker={"size": 11, "color": QUANT_THEME["accent_purple"], "symbol": "circle"}
+    ))
+
+    apply_quant_layout(fig, title, height=450, theme=theme)
+    fig.update_xaxes(title_text="Annualized Volatility (%)")
+    fig.update_yaxes(title_text="Annualized Expected Return (%)")
+    return fig
+
+
+def plot_portfolio_allocation(
+    weights_dict: Dict[str, float],
+    title: str = "Optimal Portfolio Asset Weights",
+    theme: str = "dark"
+) -> go.Figure:
+    """Creates a clean donut chart of portfolio allocation weights."""
+    filtered = {k: v for k, v in weights_dict.items() if v > 0.005}
+    labels = list(filtered.keys())
+    values = [v * 100.0 for v in filtered.values()]
+
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.45,
+        textinfo="label+percent",
+        insidetextorientation="radial"
+    )])
+
+    apply_quant_layout(fig, title, height=400, theme=theme)
+    return fig
+
+
+def plot_correlation_heatmap(
+    corr_df: pd.DataFrame,
+    title: str = "Multi-Asset Return Correlation Matrix",
+    theme: str = "dark"
+) -> go.Figure:
+    """Generates an annotated multi-asset correlation matrix heatmap."""
+    labels = list(corr_df.columns)
+    z_vals = corr_df.values
+
+    # Format annotations
+    annotations = []
+    for i, row in enumerate(z_vals):
+        for j, val in enumerate(row):
+            annotations.append({
+                "x": labels[j],
+                "y": labels[i],
+                "text": f"{val:.2f}",
+                "showarrow": False,
+                "font": {"color": "#FFFFFF" if abs(val) > 0.4 else "#94A3B8", "size": 11}
+            })
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z_vals,
+        x=labels,
+        y=labels,
+        colorscale="RdBu_r",
+        zmin=-1.0,
+        zmax=1.0,
+        colorbar={"title": "Correlation"}
+    ))
+
+    fig.update_layout(annotations=annotations)
+    apply_quant_layout(fig, title, height=450, theme=theme)
+    return fig
+
+
+def plot_rolling_beta(
+    rolling_df: pd.DataFrame,
+    ticker: str,
+    benchmark_ticker: str,
+    theme: str = "dark"
+) -> go.Figure:
+    """Plots rolling CAPM Beta and rolling R-squared."""
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.7, 0.3],
+        subplot_titles=[f"Rolling CAPM Beta ({ticker} vs {benchmark_ticker})", "Rolling R-Squared (Variance Explained)"]
+    )
+
+    dates = rolling_df.index
+
+    # Beta
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=rolling_df["rolling_beta"],
+        mode="lines",
+        name="Rolling Beta",
+        line={"color": QUANT_THEME["accent_cyan"], "width": 2.0}
+    ), row=1, col=1)
+
+    fig.add_hline(y=1.0, line_dash="dash", line_color=QUANT_THEME["benchmark_color"],
+                  annotation_text="Market Beta (1.0)", row=1, col=1)
+
+    # R2
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=rolling_df["rolling_r2"] * 100.0,
+        mode="lines",
+        name="Rolling R² (%)",
+        line={"color": QUANT_THEME["accent_amber"], "width": 1.5}
+    ), row=2, col=1)
+
+    apply_quant_layout(fig, f"Rolling Systematic Risk Profile: {ticker} vs {benchmark_ticker}", height=480, theme=theme)
+    fig.update_yaxes(title_text="Beta", row=1, col=1)
+    fig.update_yaxes(title_text="R² (%)", row=2, col=1)
     return fig

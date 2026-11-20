@@ -51,6 +51,21 @@ from analytics.reproducibility import (
 from analytics.reporting import (
     generate_pdf_research_report
 )
+from analytics.futures_accounting import (
+    FuturesContractSpec,
+    FuturesTradeRecord,
+    FuturesSimulationResult,
+    get_futures_spec,
+    simulate_futures_account,
+    FUTURES_SPECS_REGISTRY
+)
+from analytics.portfolio import (
+    PortfolioOptimizationResult,
+    compute_rolling_beta,
+    compute_rolling_correlation,
+    compute_risk_contribution,
+    optimize_portfolio
+)
 
 __all__ = [
     "compute_daily_returns",
