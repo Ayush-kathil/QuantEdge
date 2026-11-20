@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.quantedge_cache/
+.coverage
+htmlcov/
+*.parquet
+venv/
+.env
