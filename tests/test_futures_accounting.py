@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from analytics.futures_accounting import (
     get_futures_spec,
+    get_historical_lot_size,
     simulate_futures_account,
     FUTURES_SPECS_REGISTRY,
     FuturesContractSpec
@@ -34,9 +35,18 @@ def test_futures_specs_integrity():
     assert spec.tick_value == pytest.approx(10.0, abs=1e-6)
 
     nifty_spec = get_futures_spec("NIFTY_FUT")
-    assert nifty_spec.multiplier == 25.0
+    # Current active SEBI lot size is 75 (effective Nov 20, 2024)
+    assert nifty_spec.multiplier == 75.0
     assert nifty_spec.tick_size == 0.05
-    assert nifty_spec.tick_value == pytest.approx(1.25, abs=1e-6)
+    assert nifty_spec.tick_value == pytest.approx(3.75, abs=1e-6)
+
+    # Dynamic historical lot size resolution across regulatory revisions
+    assert get_historical_lot_size("NIFTY_FUT", "2024-11-25") == 75.0
+    assert get_historical_lot_size("NIFTY_FUT", "2024-05-01") == 25.0
+    assert get_historical_lot_size("NIFTY_FUT", "2023-01-01") == 50.0
+    assert get_historical_lot_size("NIFTY_FUT", "2018-06-01") == 75.0
+    assert get_historical_lot_size("BANKNIFTY_FUT", "2024-11-25") == 30.0
+    assert get_historical_lot_size("BANKNIFTY_FUT", "2023-12-01") == 15.0
 
 
 def test_futures_simulation_long_position(sample_futures_df):

@@ -74,10 +74,11 @@ In corporate firewall environments or during financial API maintenance windows:
 Verify that all mathematical models, futures margin calculations, and statistical moments pass before deployment:
 
 ```bash
-# Run the complete test suite (78 tests)
+# Run the complete test suite (104 tests)
 python -m pytest -v
 
 # Run individual domain suites
+python -m pytest tests/test_final_quantitative_validation.py -v
 python -m pytest tests/test_audit_metrics_v3.py -v
 python -m pytest tests/test_futures_accounting.py -v
 python -m pytest tests/test_indian_markets.py -v

@@ -1,17 +1,24 @@
 """
-Central Instrument Registry and Taxonomy for QuantEdge v3.
+Central Instrument Registry and Taxonomy for QuantEdge v3.1.
 
 Provides comprehensive coverage of:
-- NSE Broad Market, Sectoral, Thematic, and Strategy Indices
-- BSE Broad Market and Sectoral Indices
-- Indian Market Indicators & Derivatives (India VIX, Futures proxies, Currencies)
-- Fixed Income Indices (NIFTY G-Sec, SDL, Corporate Bond)
-- Hybrid Indices (Equity + Debt)
-- Global Equities and Commodities
+1. NSE Broad Market Indices
+2. NSE Sectoral Indices
+3. NSE Thematic Indices
+4. NSE Strategy (Smart Beta) Indices
+5. BSE Broad Market Indices
+6. BSE Sectoral Indices
+7. BSE Thematic Indices
+8. Indian ETFs
+9. Indian Derivatives (Futures & Currency Proxies)
+10. Indian Fixed Income (G-Sec, SDL, Corporate Bond)
+11. Indian Hybrid Indices
+12. Indian Market Volatility Indicators (India VIX)
+13. Global Markets & Commodities
 
-Maintains clear provenance:
-- Instrument Name, Exchange, Asset Class, Family, Symbol, Currency,
-  Data Provider, Availability Status, and Detailed Notes.
+Maintains strict provenance:
+- Official Instrument Name, Exchange, Category, Symbol, Currency,
+  Data Provider, Availability Status, ETF Proxy, and Detailed Notes.
 """
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
@@ -57,10 +64,27 @@ class InstrumentMetadata:
         }
 
 
+# 12 Standardized Indian Market Categories as mandated by exchange taxonomies
+INDIAN_MARKET_CATEGORIES: List[str] = [
+    "NSE Broad Market",
+    "NSE Sectoral",
+    "NSE Thematic",
+    "NSE Strategy",
+    "BSE Broad Market",
+    "BSE Sectoral",
+    "BSE Thematic",
+    "Indian ETFs",
+    "Indian Derivatives",
+    "Indian Fixed Income",
+    "Indian Hybrid Indices",
+    "Indian Market Volatility Indicators"
+]
+
+
 # Comprehensive Central Catalog
 INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     # -------------------------------------------------------------------------
-    # A. NSE BROAD MARKET INDICES
+    # 1. NSE BROAD MARKET INDICES
     # -------------------------------------------------------------------------
     "^NSEI": InstrumentMetadata(
         name="NIFTY 50",
@@ -71,9 +95,9 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Benchmark index representing 50 large-cap Indian companies across 13 sectors.",
+        notes="Flagship benchmark index representing 50 large-cap Indian companies across 13 economic sectors.",
         etf_proxy="NIFTYBEES.NS",
-        contract_multiplier=25.0,
+        contract_multiplier=75.0,
         tick_size=0.05
     ),
     "NIFTY_NEXT_50": InstrumentMetadata(
@@ -108,7 +132,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Designed to measure the performance of top 200 companies (Large & Midcap)."
+        notes="Designed to measure the performance of top 200 companies (Large & Midcap universe)."
     ),
     "^CRSLDX": InstrumentMetadata(
         name="NIFTY 500",
@@ -119,7 +143,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Represents top 500 companies accounting for ~94% of free-float market cap on NSE."
+        notes="Represents top 500 companies accounting for ~94% of total free-float market cap on NSE."
     ),
     "NIFTY_1000": InstrumentMetadata(
         name="NIFTY 1000",
@@ -130,7 +154,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
-        notes="Broad index tracking 1,000 liquid securities. Requires official NSE historical CSV upload."
+        notes="Broad index tracking 1,000 liquid securities across market caps. Requires official NSE CSV upload."
     ),
     "NIFTY_TOTAL_MARKET": InstrumentMetadata(
         name="NIFTY TOTAL MARKET",
@@ -141,7 +165,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
-        notes="Tracks top 750 stocks covering large, mid, small, and micro caps. Requires CSV upload."
+        notes="Tracks top 750 stocks covering large, mid, small, and micro caps. Requires official CSV upload."
     ),
     "^NSEMDCP50": InstrumentMetadata(
         name="NIFTY MIDCAP 50",
@@ -163,7 +187,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Captures movement of midcap segment. Traded ETF proxy: MID150BEES.NS.",
+        notes="Captures movement of the midcap segment. Traded ETF proxy: MID150BEES.NS.",
         etf_proxy="MID150BEES.NS"
     ),
     "NIFTY_MIDCAP_150": InstrumentMetadata(
@@ -274,7 +298,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
-        notes="Stocks ranked 101 to 200. Requires CSV upload."
+        notes="Stocks ranked 101 to 200 on NSE. Requires CSV upload."
     ),
     "NIFTY500_MULTICAP_50_25_25": InstrumentMetadata(
         name="NIFTY500 MULTICAP 50:25:25",
@@ -289,7 +313,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # B. NSE SECTORAL INDICES
+    # 2. NSE SECTORAL INDICES
     # -------------------------------------------------------------------------
     "^NSEBANK": InstrumentMetadata(
         name="NIFTY BANK",
@@ -302,7 +326,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
         notes="Tracks the 12 most liquid Indian banking stocks.",
         etf_proxy="BANKBEES.NS",
-        contract_multiplier=15.0,
+        contract_multiplier=30.0,
         tick_size=0.05
     ),
     "NIFTY_FIN_SERVICE": InstrumentMetadata(
@@ -564,7 +588,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # C. NSE THEMATIC INDICES
+    # 3. NSE THEMATIC INDICES
     # -------------------------------------------------------------------------
     "NIFTY_DEFENCE": InstrumentMetadata(
         name="NIFTY INDIA DEFENCE",
@@ -756,7 +780,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # D. NSE STRATEGY INDICES (Smart Beta)
+    # 4. NSE STRATEGY INDICES (Smart Beta)
     # -------------------------------------------------------------------------
     "NIFTY_100_EQUAL_WEIGHT": InstrumentMetadata(
         name="NIFTY 100 EQUAL WEIGHT",
@@ -903,14 +927,14 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # E. BSE INDICES
+    # 5. BSE BROAD MARKET INDICES
     # -------------------------------------------------------------------------
     "^BSESN": InstrumentMetadata(
         name="BSE SENSEX",
         symbol="^BSESN",
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
@@ -922,7 +946,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="^BSE100",
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
@@ -933,7 +957,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="^BSE200",
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
@@ -944,29 +968,18 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="^BSE500",
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
         notes="Broad index representing ~93% of total market cap on BSE."
-    ),
-    "^BSEBANK": InstrumentMetadata(
-        name="BSE BANKEX",
-        symbol="^BSEBANK",
-        exchange="BSE",
-        asset_class="Index",
-        index_family="BSE Indices",
-        currency="INR",
-        data_provider="Yahoo Finance API",
-        availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Benchmark index tracking prominent public and private sector banks on BSE."
     ),
     "BSE_SENSEX_50": InstrumentMetadata(
         name="BSE SENSEX 50",
         symbol=None,
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -977,7 +990,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -988,7 +1001,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -999,7 +1012,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="BSE",
         asset_class="Index",
-        index_family="BSE Indices",
+        index_family="BSE Broad Market",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1007,25 +1020,176 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # F. INDIAN MARKET INDICATORS & DERIVATIVES
+    # 6. BSE SECTORAL INDICES
     # -------------------------------------------------------------------------
-    "^INDIAVIX": InstrumentMetadata(
-        name="INDIA VIX (Volatility Index)",
-        symbol="^INDIAVIX",
-        exchange="NSE",
-        asset_class="Market Indicator",
-        index_family="Indian Indicators",
+    "^BSEBANK": InstrumentMetadata(
+        name="BSE BANKEX",
+        symbol="^BSEBANK",
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Measures implied annual volatility expectations over the next 30 calendar days from NIFTY option bid/ask quotes."
+        notes="Benchmark index tracking prominent public and private sector banks on BSE."
     ),
+    "BSE_AUTO": InstrumentMetadata(
+        name="BSE AUTO",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Automobile manufacturers and ancillary companies listed on BSE. Requires CSV upload."
+    ),
+    "BSE_IT": InstrumentMetadata(
+        name="BSE IT",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Information Technology companies on BSE. Requires CSV upload."
+    ),
+    "BSE_FMCG": InstrumentMetadata(
+        name="BSE FMCG",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="FMCG companies on BSE. Requires CSV upload."
+    ),
+    "BSE_METAL": InstrumentMetadata(
+        name="BSE METAL",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Metals and mining companies on BSE. Requires CSV upload."
+    ),
+    "BSE_HEALTHCARE": InstrumentMetadata(
+        name="BSE HEALTHCARE",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Pharmaceuticals and healthcare companies on BSE. Requires CSV upload."
+    ),
+    "BSE_OIL_GAS": InstrumentMetadata(
+        name="BSE OIL & GAS",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Oil exploration, refining, and gas marketing on BSE. Requires CSV upload."
+    ),
+    "BSE_CAPITAL_GOODS": InstrumentMetadata(
+        name="BSE CAPITAL GOODS",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Capital goods and heavy engineering on BSE. Requires CSV upload."
+    ),
+    "BSE_CONSUMER_DURABLES": InstrumentMetadata(
+        name="BSE CONSUMER DURABLES",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Consumer electronics and home appliances on BSE. Requires CSV upload."
+    ),
+    "BSE_PSU": InstrumentMetadata(
+        name="BSE PSU",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Sectoral",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Public Sector Undertakings listed on BSE. Requires CSV upload."
+    ),
+
+    # -------------------------------------------------------------------------
+    # 7. BSE THEMATIC INDICES
+    # -------------------------------------------------------------------------
+    "BSE_MANUFACTURING": InstrumentMetadata(
+        name="BSE INDIA MANUFACTURING",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Thematic",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Manufacturing companies listed on BSE. Requires CSV upload."
+    ),
+    "BSE_INFRASTRUCTURE": InstrumentMetadata(
+        name="BSE INDIA INFRASTRUCTURE",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Thematic",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Infrastructure developers and utilities on BSE. Requires CSV upload."
+    ),
+    "BSE_HOUSING": InstrumentMetadata(
+        name="BSE HOUSING",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Thematic",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="Housing developers, construction materials, and home finance. Requires CSV upload."
+    ),
+    "BSE_INTERNET_ECONOMY": InstrumentMetadata(
+        name="BSE INTERNET ECONOMY",
+        symbol=None,
+        exchange="BSE",
+        asset_class="Index",
+        index_family="BSE Thematic",
+        currency="INR",
+        data_provider="CSV Upload / Exchange License Required",
+        availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
+        notes="New-age digital platforms and internet businesses on BSE. Requires CSV upload."
+    ),
+
+    # -------------------------------------------------------------------------
+    # 8. INDIAN ETFS
+    # -------------------------------------------------------------------------
     "NIFTYBEES.NS": InstrumentMetadata(
         name="NIFTY 50 ETF (NIFTYBEES)",
         symbol="NIFTYBEES.NS",
         exchange="NSE",
         asset_class="ETF",
-        index_family="Indian Indicators",
+        index_family="Indian ETFs",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
@@ -1036,7 +1200,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="BANKBEES.NS",
         exchange="NSE",
         asset_class="ETF",
-        index_family="Indian Indicators",
+        index_family="Indian ETFs",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
@@ -1047,34 +1211,104 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="GOLDBEES.NS",
         exchange="NSE",
         asset_class="ETF",
-        index_family="Indian Indicators",
+        index_family="Indian ETFs",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
         notes="Physical domestic gold-backed ETF traded on NSE."
     ),
-    "USDINR=X": InstrumentMetadata(
-        name="USD/INR Spot / Currency Rate",
-        symbol="USDINR=X",
-        exchange="Interbank / FX",
-        asset_class="Currency",
-        index_family="Indian Indicators",
+    "JUNIORBEES.NS": InstrumentMetadata(
+        name="NIFTY NEXT 50 ETF (JUNIORBEES)",
+        symbol="JUNIORBEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
         currency="INR",
         data_provider="Yahoo Finance API",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="US Dollar to Indian Rupee spot exchange rate reference for foreign exchange conversion and RBI intervention analytics."
+        notes="Exchange-traded fund tracking NIFTY Next 50 index."
     ),
+    "ITBEES.NS": InstrumentMetadata(
+        name="NIFTY IT ETF (ITBEES)",
+        symbol="ITBEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund tracking NIFTY IT index constituents."
+    ),
+    "AUTOBEES.NS": InstrumentMetadata(
+        name="NIFTY AUTO ETF (AUTOBEES)",
+        symbol="AUTOBEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund tracking NIFTY Auto index constituents."
+    ),
+    "PHARMABEES.NS": InstrumentMetadata(
+        name="NIFTY PHARMA ETF (PHARMABEES)",
+        symbol="PHARMABEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund tracking NIFTY Pharma index constituents."
+    ),
+    "PSUBNKBEES.NS": InstrumentMetadata(
+        name="NIFTY PSU BANK ETF (PSUBNKBEES)",
+        symbol="PSUBNKBEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund tracking NIFTY PSU Bank index constituents."
+    ),
+    "CPSEETF.NS": InstrumentMetadata(
+        name="CPSE ETF",
+        symbol="CPSEETF.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund tracking Central Public Sector Enterprises index."
+    ),
+    "SILVERBEES.NS": InstrumentMetadata(
+        name="SILVER ETF (SILVERBEES)",
+        symbol="SILVERBEES.NS",
+        exchange="NSE",
+        asset_class="ETF",
+        index_family="Indian ETFs",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Exchange-traded fund physically backed by domestic silver."
+    ),
+
+    # -------------------------------------------------------------------------
+    # 9. INDIAN DERIVATIVES (FUTURES & CURRENCY PROXIES)
+    # -------------------------------------------------------------------------
     "NIFTY_FUTURES_PROXY": InstrumentMetadata(
         name="NIFTY 50 Futures (Proxy)",
         symbol="^NSEI",
         exchange="NSE",
         asset_class="Futures Proxy",
-        index_family="Indian Indicators",
+        index_family="Indian Derivatives",
         currency="INR",
         data_provider="Yahoo Finance API (Spot Proxy)",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Continuous spot proxy for NIFTY 50 index futures contract. Multiplier: 25, Tick size: 0.05.",
-        contract_multiplier=25.0,
+        notes="Continuous spot proxy for NIFTY 50 index futures contract. Multiplier: 75 (current), Tick size: 0.05.",
+        contract_multiplier=75.0,
         tick_size=0.05,
         initial_margin_pct=0.12,
         maintenance_margin_pct=0.08
@@ -1084,26 +1318,37 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol="^NSEBANK",
         exchange="NSE",
         asset_class="Futures Proxy",
-        index_family="Indian Indicators",
+        index_family="Indian Derivatives",
         currency="INR",
         data_provider="Yahoo Finance API (Spot Proxy)",
         availability=AvailabilityStatus.AVAILABLE_ONLINE,
-        notes="Continuous spot proxy for BANK NIFTY futures contract. Multiplier: 15, Tick size: 0.05.",
-        contract_multiplier=15.0,
+        notes="Continuous spot proxy for BANK NIFTY futures contract. Multiplier: 30 (current), Tick size: 0.05.",
+        contract_multiplier=30.0,
         tick_size=0.05,
         initial_margin_pct=0.15,
         maintenance_margin_pct=0.10
     ),
+    "USDINR=X": InstrumentMetadata(
+        name="USD/INR Spot / Currency Rate",
+        symbol="USDINR=X",
+        exchange="Interbank / FX",
+        asset_class="Currency",
+        index_family="Indian Derivatives",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="US Dollar to Indian Rupee spot exchange rate reference for FX risk, hedging, and RBI intervention analytics."
+    ),
 
     # -------------------------------------------------------------------------
-    # G. FIXED INCOME (Indian G-Sec & Debt Indices)
+    # 10. INDIAN FIXED INCOME (G-SEC, SDL, CORPORATE BOND)
     # -------------------------------------------------------------------------
     "NIFTY_10YR_BENCHMARK_GSEC": InstrumentMetadata(
         name="NIFTY 10 yr Benchmark G-Sec Index",
         symbol=None,
         exchange="NSE / CCIL",
         asset_class="Fixed Income",
-        index_family="Fixed Income",
+        index_family="Indian Fixed Income",
         currency="INR",
         data_provider="CSV Upload / CCIL Data Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1114,7 +1359,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="NSE",
         asset_class="Fixed Income",
-        index_family="Fixed Income",
+        index_family="Indian Fixed Income",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1125,7 +1370,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="NSE",
         asset_class="Fixed Income",
-        index_family="Fixed Income",
+        index_family="Indian Fixed Income",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1133,14 +1378,14 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # H. HYBRID INDICES
+    # 11. INDIAN HYBRID INDICES
     # -------------------------------------------------------------------------
     "NIFTY_50_HYBRID_DEBT_50_50": InstrumentMetadata(
         name="NIFTY 50 Hybrid Composite Debt 50:50 Index",
         symbol=None,
         exchange="NSE",
         asset_class="Hybrid Index",
-        index_family="Hybrid Indices",
+        index_family="Indian Hybrid Indices",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1151,7 +1396,7 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
         symbol=None,
         exchange="NSE",
         asset_class="Hybrid Index",
-        index_family="Hybrid Indices",
+        index_family="Indian Hybrid Indices",
         currency="INR",
         data_provider="CSV Upload / Exchange License Required",
         availability=AvailabilityStatus.UNAVAILABLE_YFINANCE_REQUIRES_CSV,
@@ -1159,7 +1404,22 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
     ),
 
     # -------------------------------------------------------------------------
-    # I. GLOBAL EQUITIES & COMMODITY BENCHMARKS
+    # 12. INDIAN MARKET VOLATILITY INDICATORS
+    # -------------------------------------------------------------------------
+    "^INDIAVIX": InstrumentMetadata(
+        name="INDIA VIX (Volatility Index)",
+        symbol="^INDIAVIX",
+        exchange="NSE",
+        asset_class="Market Indicator",
+        index_family="Indian Market Volatility Indicators",
+        currency="INR",
+        data_provider="Yahoo Finance API",
+        availability=AvailabilityStatus.AVAILABLE_ONLINE,
+        notes="Measures implied annual volatility expectations over the next 30 calendar days from NIFTY option bid/ask quotes."
+    ),
+
+    # -------------------------------------------------------------------------
+    # 13. GLOBAL EQUITIES & COMMODITY BENCHMARKS
     # -------------------------------------------------------------------------
     "^GSPC": InstrumentMetadata(
         name="S&P 500 (US Broad Market)",
@@ -1259,14 +1519,29 @@ INSTRUMENT_REGISTRY: Dict[str, InstrumentMetadata] = {
 }
 
 
+FAMILY_ALIASES: Dict[str, List[str]] = {
+    "BSE Indices": ["BSE Broad Market", "BSE Sectoral", "BSE Thematic"],
+    "Indian Indicators": ["Indian Market Volatility Indicators", "Indian Derivatives", "Indian ETFs"],
+    "Fixed Income": ["Indian Fixed Income"],
+    "Hybrid Indices": ["Indian Hybrid Indices"],
+}
+
+
 def get_instruments_by_family(family: str) -> List[InstrumentMetadata]:
-    """Returns all instruments belonging to a specific index family."""
+    """Returns all instruments belonging to a specific index family, supporting category aliases."""
+    if family in FAMILY_ALIASES:
+        target_families = set(FAMILY_ALIASES[family])
+        return [meta for meta in INSTRUMENT_REGISTRY.values() if meta.index_family in target_families or meta.index_family == family]
     return [meta for meta in INSTRUMENT_REGISTRY.values() if meta.index_family == family]
 
 
 def get_all_families() -> List[str]:
     """Returns list of distinct index families in canonical order."""
-    families = []
+    families: List[str] = []
+    # Ensure Indian Market Categories appear in primary canonical order
+    for cat in INDIAN_MARKET_CATEGORIES:
+        if any(m.index_family == cat for m in INSTRUMENT_REGISTRY.values()) and cat not in families:
+            families.append(cat)
     for meta in INSTRUMENT_REGISTRY.values():
         if meta.index_family not in families:
             families.append(meta.index_family)
@@ -1286,3 +1561,8 @@ def get_instrument_by_symbol_or_key(key: str) -> Optional[InstrumentMetadata]:
         if meta.symbol == key:
             return meta
     return None
+
+
+def is_indian_instrument(meta: InstrumentMetadata) -> bool:
+    """Returns True if the instrument belongs to the Indian market taxonomy."""
+    return meta.index_family in INDIAN_MARKET_CATEGORIES or meta.currency == "INR" or meta.exchange in ["NSE", "BSE", "MCX"]

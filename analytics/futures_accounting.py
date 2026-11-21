@@ -1,8 +1,9 @@
 """
-Futures-Specific Accounting, Margin Modeling, and Contract Simulation for QuantEdge v3.
+Futures-Specific Accounting, Margin Modeling, and Contract Simulation for QuantEdge v3.1.
 
 Provides institutional-grade futures simulation:
 - Contract specifications (multiplier, tick size, tick value)
+- Dynamic historical exchange lot-size schedules with effective dates (NSE revisions)
 - Initial margin & maintenance margin modeling
 - Daily mark-to-market variation margin settlement
 - Realized & unrealized P&L calculation
@@ -14,7 +15,8 @@ Provides institutional-grade futures simulation:
     D. Continuous Futures Proxy Returns
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Union
+from datetime import date
 import numpy as np
 import pandas as pd
 
@@ -67,6 +69,71 @@ class FuturesContractSpec:
         )
 
 
+# Comprehensive historical lot size schedules (NSE circulars and exchange revisions)
+HISTORICAL_LOT_SIZE_SCHEDULE: Dict[str, List[Tuple[str, float]]] = {
+    "NIFTY_FUT": [
+        ("2000-01-01", 50.0),
+        ("2015-10-30", 75.0),
+        ("2021-04-30", 50.0),
+        ("2024-04-26", 25.0),
+        ("2024-11-20", 75.0),  # SEBI revised framework
+    ],
+    "^NSEI": [
+        ("2000-01-01", 50.0),
+        ("2015-10-30", 75.0),
+        ("2021-04-30", 50.0),
+        ("2024-04-26", 25.0),
+        ("2024-11-20", 75.0),
+    ],
+    "BANKNIFTY_FUT": [
+        ("2000-01-01", 30.0),
+        ("2016-01-01", 40.0),
+        ("2018-01-01", 20.0),
+        ("2020-07-01", 25.0),
+        ("2023-07-01", 15.0),
+        ("2024-11-20", 30.0),  # SEBI revised framework
+    ],
+    "^NSEBANK": [
+        ("2000-01-01", 30.0),
+        ("2016-01-01", 40.0),
+        ("2018-01-01", 20.0),
+        ("2020-07-01", 25.0),
+        ("2023-07-01", 15.0),
+        ("2024-11-20", 30.0),
+    ]
+}
+
+
+def get_historical_lot_size(
+    symbol_or_key: str,
+    target_date: Optional[Union[str, pd.Timestamp, date]] = None
+) -> float:
+    """
+    Retrieves the exchange-mandated contract lot size active on a given historical date.
+    
+    If target_date is None, returns the current active exchange lot size.
+    For instruments without dynamic schedules, returns the base multiplier from the registry.
+    """
+    key = symbol_or_key.upper()
+    if key in HISTORICAL_LOT_SIZE_SCHEDULE:
+        schedule = HISTORICAL_LOT_SIZE_SCHEDULE[key]
+        if target_date is None:
+            return schedule[-1][1]
+        
+        t_str = str(pd.to_datetime(target_date).date())
+        active_lot = schedule[0][1]
+        for eff_date, lot in schedule:
+            if t_str >= eff_date:
+                active_lot = lot
+            else:
+                break
+        return active_lot
+
+    # Fallback to base registry multiplier
+    spec = get_futures_spec(symbol_or_key)
+    return spec.multiplier
+
+
 # Comprehensive registry of standard futures contracts
 FUTURES_SPECS_REGISTRY: Dict[str, FuturesContractSpec] = {
     "GC=F": FuturesContractSpec.create(
@@ -112,8 +179,8 @@ FUTURES_SPECS_REGISTRY: Dict[str, FuturesContractSpec] = {
         symbol="^NSEI",
         name="NIFTY 50 Index Futures (NSE)",
         exchange="NSE",
-        multiplier=25.0,   # Current NSE lot size: 25 (historical: 50/75)
-        tick_size=0.05,    # 0.05 index points (Tick value = 25 * 0.05 = 1.25 INR)
+        multiplier=75.0,   # Current NSE lot size: 75 (effective Nov 20, 2024; historically 50, 75, 50, 25)
+        tick_size=0.05,    # 0.05 index points (Tick value = 75 * 0.05 = 3.75 INR)
         currency="INR",
         initial_margin_rate=0.12,  # SPAN + Exposure margin approx 12-14%
         maintenance_margin_rate=0.08,
@@ -125,8 +192,8 @@ FUTURES_SPECS_REGISTRY: Dict[str, FuturesContractSpec] = {
         symbol="^NSEBANK",
         name="BANK NIFTY Futures (NSE)",
         exchange="NSE",
-        multiplier=15.0,   # Lot size: 15
-        tick_size=0.05,    # 0.05 points (Tick value = 15 * 0.05 = 0.75 INR)
+        multiplier=30.0,   # Current NSE lot size: 30 (effective Nov 20, 2024; historically 15, 25, 40)
+        tick_size=0.05,    # 0.05 points (Tick value = 30 * 0.05 = 1.50 INR)
         currency="INR",
         initial_margin_rate=0.15,
         maintenance_margin_rate=0.10,
@@ -220,10 +287,11 @@ def simulate_futures_account(
     spec: FuturesContractSpec,
     initial_cash: float = 100_000.0,
     max_contracts: int = 1,
-    slippage_ticks: float = 1.0
+    slippage_ticks: float = 1.0,
+    use_historical_lot_sizes: bool = False
 ) -> FuturesSimulationResult:
     """
-    Simulates a marked-to-market futures margin account.
+    Simulates a marked-to-market futures margin account with daily variation margin settlement.
     
     Parameters:
         price_df: OHLCV DataFrame (must include 'Open' and 'Close')
@@ -232,6 +300,7 @@ def simulate_futures_account(
         initial_cash: Starting cash deposit in account
         max_contracts: Number of contracts traded per signal
         slippage_ticks: Adverse slippage applied in ticks per trade execution
+        use_historical_lot_sizes: If True, uses date-mandated historical lot sizes (e.g. for NSE).
     """
     n_bars = len(price_df)
     dates = price_df.index
@@ -250,13 +319,14 @@ def simulate_futures_account(
     margin_calls_count = 0
     total_fees = 0.0
 
-    slippage_cost_per_contract = slippage_ticks * spec.tick_size * spec.multiplier
-
     for t in range(n_bars):
         curr_date = str(dates[t].date()) if hasattr(dates[t], "date") else str(dates[t])
         curr_open = float(price_df["Open"].iloc[t])
         curr_close = float(price_df["Close"].iloc[t])
         prev_close = float(price_df["Close"].iloc[t - 1]) if t > 0 else curr_open
+
+        # Resolve active contract multiplier for current date
+        active_multiplier = get_historical_lot_size(spec.symbol, dates[t]) if use_historical_lot_sizes else spec.multiplier
 
         # Execute signals generated at t-1 at today's Open
         target_signal = int(signals.iloc[t - 1]) if t > 0 else 0
@@ -271,17 +341,17 @@ def simulate_futures_account(
                 direction_str = "LONG" if current_pos > 0 else "SHORT"
                 exit_fill = curr_open - np.sign(current_pos) * (slippage_ticks * spec.tick_size)
                 ticks = (exit_fill - entry_price) / spec.tick_size * np.sign(current_pos)
-                gross_trade_pnl = (exit_fill - entry_price) * spec.multiplier * abs(current_pos) * np.sign(current_pos)
+                gross_trade_pnl = (exit_fill - entry_price) * active_multiplier * abs(current_pos) * np.sign(current_pos)
                 fee = spec.transaction_cost_per_contract * abs(current_pos) * 2.0  # round-trip
                 net_trade_pnl = gross_trade_pnl - fee
                 total_fees += fee
 
                 # Cash adjustment for closing trade (variation margin settlement handles day-to-day,
                 # but final fill vs prev_close adjustment settles remaining intraday delta)
-                intraday_exit_vm = (exit_fill - prev_close) * spec.multiplier * current_pos
+                intraday_exit_vm = (exit_fill - prev_close) * active_multiplier * current_pos
                 cash += intraday_exit_vm - fee
 
-                margin_posted = entry_price * spec.multiplier * abs(current_pos) * spec.initial_margin_rate
+                margin_posted = entry_price * active_multiplier * abs(current_pos) * spec.initial_margin_rate
 
                 trades.append(FuturesTradeRecord(
                     entry_date=entry_date or curr_date,
@@ -290,7 +360,7 @@ def simulate_futures_account(
                     contracts=abs(current_pos),
                     entry_price=entry_price,
                     exit_price=exit_fill,
-                    multiplier=spec.multiplier,
+                    multiplier=active_multiplier,
                     ticks_captured=ticks,
                     gross_pnl=gross_trade_pnl,
                     transaction_fees=fee,
@@ -308,7 +378,7 @@ def simulate_futures_account(
                 cash -= fee_entry
                 total_fees += fee_entry
                 # Intraday variation margin from fill price to today's close
-                day_vm = (curr_close - entry_price) * spec.multiplier * current_pos
+                day_vm = (curr_close - entry_price) * active_multiplier * current_pos
             else:
                 current_pos = 0
                 entry_price = 0.0
@@ -317,7 +387,7 @@ def simulate_futures_account(
         else:
             # Holding position from previous day: full day variation margin
             if current_pos != 0:
-                day_vm = (curr_close - prev_close) * spec.multiplier * current_pos
+                day_vm = (curr_close - prev_close) * active_multiplier * current_pos
             else:
                 day_vm = 0.0
 
@@ -328,7 +398,7 @@ def simulate_futures_account(
 
         # Calculate required margin for open positions
         if current_pos != 0:
-            notional = curr_close * spec.multiplier * abs(current_pos)
+            notional = curr_close * active_multiplier * abs(current_pos)
             req_initial_margin = notional * spec.initial_margin_rate
             req_maint_margin = notional * spec.maintenance_margin_rate
         else:
@@ -337,7 +407,7 @@ def simulate_futures_account(
 
         daily_margin_req[t] = req_initial_margin
 
-        # In daily settled futures accounting, Equity = Cash (since variation margin is settled daily)
+        # In daily settled futures accounting, Equity = Cash
         equity = cash
         daily_equity[t] = equity
 

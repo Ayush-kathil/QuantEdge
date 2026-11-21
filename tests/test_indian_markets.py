@@ -4,29 +4,24 @@ Tests for Central Instrument Registry and Comprehensive Indian Market Coverage.
 import pytest
 from config.instruments import (
     INSTRUMENT_REGISTRY,
+    INDIAN_MARKET_CATEGORIES,
     AvailabilityStatus,
     get_all_families,
     get_instruments_by_family,
     get_available_online_instruments,
-    get_instrument_by_symbol_or_key
+    get_instrument_by_symbol_or_key,
+    is_indian_instrument
 )
 
 
 def test_registry_has_all_required_categories():
     families = get_all_families()
-    required = [
-        "NSE Broad Market",
-        "NSE Sectoral",
-        "NSE Thematic",
-        "NSE Strategy",
-        "BSE Indices",
-        "Indian Indicators",
-        "Fixed Income",
-        "Hybrid Indices",
-        "Global Markets",
-        "Global Commodities"
-    ]
-    for req in required:
+    # 12 Standardized Indian market categories must all be present
+    for cat in INDIAN_MARKET_CATEGORIES:
+        assert cat in families, f"Missing required Indian market category: {cat}"
+    
+    # Global families must also be present
+    for req in ["Global Markets", "Global Commodities"]:
         assert req in families, f"Missing required market family: {req}"
 
 

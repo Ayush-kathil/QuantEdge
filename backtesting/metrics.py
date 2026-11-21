@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import numpy as np
 import pandas as pd
+from analytics.returns import compute_cagr
 from analytics.volatility import compute_realized_volatility
 from analytics.risk import compute_drawdowns, compute_downside_deviation
 from backtesting.execution import Trade
@@ -49,7 +50,7 @@ class PerformanceMetrics:
             "CAGR": f"{self.cagr * 100.0:.2f}%" if not np.isnan(self.cagr) else "N/A",
             "Annualized Volatility": f"{self.annualized_volatility * 100.0:.2f}%",
             "Sharpe Ratio": f"{self.sharpe_ratio:.2f}" if not np.isnan(self.sharpe_ratio) else "N/A",
-            "Sortino Ratio": f"{self.sortino_ratio:.2f}" if not np.isnan(self.sortino_ratio) else "N/A",
+            "Sortino Ratio": f"{self.sortino_ratio:.2f}" if not np.isnan(self.sortino_ratio) and not np.isinf(self.sortino_ratio) else ("Inf (Zero Downside Vol)" if np.isinf(self.sortino_ratio) else "N/A"),
             "Max Drawdown": f"{self.max_drawdown * 100.0:.2f}%",
             "Calmar Ratio": f"{self.calmar_ratio:.2f}" if not np.isnan(self.calmar_ratio) else "N/A",
             "Beta vs Benchmark": f"{self.beta:.2f}",
@@ -124,13 +125,15 @@ def calculate_performance_metrics(
     end_cap = float(equity_curve.iloc[-1])
     tot_ret = (end_cap - init_cap) / init_cap if init_cap > 0 else 0.0
 
-    # Number of years for CAGR
-    n_days = len(equity_curve)
-    n_years = n_days / float(trading_days)
-    if n_years > 0.05 and end_cap > 0:
-        cagr = (end_cap / init_cap) ** (1.0 / n_years) - 1.0
-    else:
-        cagr = tot_ret
+    # Number of years for CAGR using robust compute_cagr
+    cagr = compute_cagr(
+        start_value=init_cap,
+        end_value=end_cap,
+        num_periods=len(equity_curve),
+        periods_per_year=trading_days,
+        start_date=equity_curve.index[0] if len(equity_curve) > 0 else None,
+        end_date=equity_curve.index[-1] if len(equity_curve) > 0 else None
+    )
 
     # Annualized Volatility
     vol_ann = compute_realized_volatility(daily_returns, trading_days=trading_days)
@@ -138,10 +141,10 @@ def calculate_performance_metrics(
     # Daily risk-free conversion
     rf_daily = risk_free_rate / float(trading_days)
     excess_rets = daily_returns - rf_daily
+    mean_excess_ann = float(excess_rets.mean() * trading_days)
 
     # Sharpe Ratio
     if vol_ann > 1e-6:
-        mean_excess_ann = float(excess_rets.mean() * trading_days)
         sharpe = mean_excess_ann / vol_ann
     else:
         sharpe = 0.0
@@ -150,9 +153,12 @@ def calculate_performance_metrics(
     # Downside deviation & Sortino
     downside_vol = compute_downside_deviation(daily_returns, mar_daily=rf_daily, trading_days=trading_days)
     if downside_vol > 1e-6:
-        sortino = float(excess_rets.mean() * trading_days) / downside_vol
+        sortino = mean_excess_ann / downside_vol
+    elif mean_excess_ann > 0:
+        sortino = float("inf")
+        notes.append("Zero downside volatility with positive excess returns; Sortino is infinite.")
     else:
-        sortino = 0.0 if vol_ann < 1e-6 else np.nan
+        sortino = 0.0
 
     # Drawdowns
     dd_res = compute_drawdowns(equity_curve)

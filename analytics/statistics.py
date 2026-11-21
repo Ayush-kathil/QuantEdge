@@ -134,7 +134,7 @@ def compute_distribution_statistics(
         )
     else:
         interpretations.append(
-            "Empirical Gaussianity: Fails to reject the null hypothesis of normality at the 5% significance level."
+            "Fails to Reject Normality: Jarque-Bera test fails to reject the Gaussian null hypothesis at the 5% significance level. (Note: In finite financial samples, failing to reject H0 does not prove true underlying Gaussianity)."
         )
 
     lag1 = autocorr.get(1, 0.0)
@@ -182,3 +182,47 @@ def compute_correlation_matrix(
     if df.empty or len(df.columns) < 2:
         return pd.DataFrame()
     return df.corr(method="pearson")
+
+
+def compute_historical_var(returns: pd.Series, confidence: float = 0.95) -> float:
+    """
+    Computes non-parametric Historical Value-at-Risk (VaR).
+    Expressed as a positive loss percentage (e.g., 0.02 = 2% loss).
+    """
+    clean = returns.dropna()
+    if clean.empty:
+        return 0.0
+    alpha = (1.0 - confidence) * 100.0
+    q = float(np.percentile(clean.to_numpy(), alpha))
+    return float(-q)
+
+
+def compute_parametric_var(returns: pd.Series, confidence: float = 0.95) -> float:
+    """
+    Computes Gaussian Parametric Value-at-Risk:
+    VaR = -(mu - z_{alpha} * sigma)
+    """
+    clean = returns.dropna()
+    if len(clean) < 2:
+        return 0.0
+    mu = float(np.mean(clean))
+    sigma = float(np.std(clean, ddof=1))
+    z = float(stats.norm.ppf(confidence))
+    return float(-(mu - z * sigma))
+
+
+def compute_conditional_var(returns: pd.Series, confidence: float = 0.95) -> float:
+    """
+    Computes Conditional Value-at-Risk (CVaR / Expected Shortfall):
+    E[-R | -R >= VaR]
+    Guaranteed mathematically to satisfy CVaR >= VaR.
+    """
+    clean = returns.dropna()
+    if clean.empty:
+        return 0.0
+    var = compute_historical_var(clean, confidence=confidence)
+    arr = clean.to_numpy()
+    tail = arr[arr <= -var]
+    if len(tail) == 0:
+        return var
+    return float(-np.mean(tail))

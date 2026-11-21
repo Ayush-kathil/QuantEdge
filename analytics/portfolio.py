@@ -1,5 +1,5 @@
 """
-Portfolio Research, Cross-Asset Analytics, Rolling Beta, and Optimization for QuantEdge v3.
+Portfolio Research, Cross-Asset Analytics, Rolling Beta, and Optimization for QuantEdge v3.1.
 
 Provides:
 - Rolling CAPM Beta and Alpha vs. Benchmark
@@ -9,6 +9,7 @@ Provides:
     - Minimum Variance Portfolio
     - Equal-Weight Portfolio Benchmark
     - Efficient Frontier Curve Generation
+- Condition Number Auditing & Shrinkage Regularization for Ill-Conditioned Covariance Matrices
 - Percentage Risk Contribution (%RC) Deconstruction
 - Cross-Asset Cumulative Return Normalization
 """
@@ -17,6 +18,17 @@ from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+
+
+@dataclass
+class CovarianceAuditResult:
+    """Diagnostic audit of covariance matrix conditioning and spectral health."""
+    condition_number: float
+    min_eigenvalue: float
+    max_eigenvalue: float
+    is_positive_definite: bool
+    is_ill_conditioned: bool
+    warning_message: Optional[str] = None
 
 
 @dataclass
@@ -40,6 +52,8 @@ class PortfolioOptimizationResult:
     risk_contributions_max_sharpe: Dict[str, float]
     risk_contributions_min_var: Dict[str, float]
     correlation_matrix: pd.DataFrame
+    condition_number: float = 1.0
+    was_regularized: bool = False
 
 
 def compute_rolling_beta(
@@ -116,6 +130,53 @@ def compute_risk_contribution(
     return pct_risk_contrib
 
 
+def audit_covariance_matrix(cov_matrix: Any) -> CovarianceAuditResult:
+    """
+    Audits spectral condition number kappa(Sigma) = lambda_max / lambda_min
+    and verifies strict positive definiteness for optimizer stability.
+    """
+    cov_arr = cov_matrix.to_numpy() if isinstance(cov_matrix, pd.DataFrame) else np.asarray(cov_matrix, dtype=float)
+    eigvals = np.linalg.eigvalsh(cov_arr)
+    min_eig = float(np.min(eigvals))
+    max_eig = float(np.max(eigvals))
+    cond_num = float(max_eig / max(1e-12, min_eig)) if min_eig > 0 else float("inf")
+    is_pos_def = bool(min_eig > 1e-8)
+    is_ill = bool(cond_num > 1e4 or not is_pos_def)
+    msg = None
+    if is_ill:
+        msg = f"Ill-conditioned covariance matrix (kappa={cond_num:.2e}, lambda_min={min_eig:.2e}). Applying Ledoit-Wolf / diagonal shrinkage."
+    return CovarianceAuditResult(
+        condition_number=cond_num,
+        min_eigenvalue=min_eig,
+        max_eigenvalue=max_eig,
+        is_positive_definite=is_pos_def,
+        is_ill_conditioned=is_ill,
+        warning_message=msg
+    )
+
+
+def regularize_covariance_matrix(
+    cov_matrix: Any,
+    method: str = "diagonal_shrinkage",
+    shrinkage_factor: float = 0.05
+) -> Any:
+    """
+    Regularizes an ill-conditioned covariance matrix via convex shrinkage:
+    Sigma_reg = (1 - delta) * Sigma + delta * diag(Sigma) + epsilon * I
+    Guarantees strict positive definiteness and finite condition number.
+    """
+    is_df = isinstance(cov_matrix, pd.DataFrame)
+    cov_arr = cov_matrix.to_numpy().copy() if is_df else np.asarray(cov_matrix, dtype=float).copy()
+    n = cov_arr.shape[0]
+    shrinkage_target = np.diag(np.diag(cov_arr))
+    delta = float(np.clip(shrinkage_factor, 0.01, 0.50))
+    reg_cov = (1.0 - delta) * cov_arr + delta * shrinkage_target
+    reg_cov += np.eye(n) * 1e-6
+    if is_df:
+        return pd.DataFrame(reg_cov, index=cov_matrix.index, columns=cov_matrix.columns)
+    return reg_cov
+
+
 def optimize_portfolio(
     returns_df: pd.DataFrame,
     risk_free_rate: float = 0.04,
@@ -125,7 +186,9 @@ def optimize_portfolio(
     """
     Executes Markowitz Mean-Variance Portfolio Optimization on a multi-asset DataFrame.
     
-    Computes:
+    Features:
+        - Condition number auditing to detect collinearity and singular covariance matrices
+        - Automatic diagonal shrinkage regularization for numerical stability
         - Maximum Sharpe Ratio Portfolio (Long-only, sum(w) = 1)
         - Global Minimum Variance Portfolio
         - Equal-Weight Baseline Portfolio
@@ -144,6 +207,16 @@ def optimize_portfolio(
     mu_ann = mu_daily * trading_days
     cov_daily = clean_rets.cov().to_numpy()
     cov_ann = cov_daily * trading_days
+
+    # Spectral analysis & Condition number checking via audit_covariance_matrix
+    audit = audit_covariance_matrix(cov_ann)
+    cond_num = audit.condition_number
+    was_reg = False
+
+    # Regularize if ill-conditioned or non-positive-definite
+    if audit.is_ill_conditioned:
+        cov_ann = regularize_covariance_matrix(cov_ann, shrinkage_factor=0.05)
+        was_reg = True
 
     corr_matrix = clean_rets.corr()
 
@@ -231,5 +304,11 @@ def optimize_portfolio(
         efficient_frontier_rets=frontier_rets,
         risk_contributions_max_sharpe={assets[i]: float(rc_max_sharpe[i]) for i in range(n_assets)},
         risk_contributions_min_var={assets[i]: float(rc_min_var[i]) for i in range(n_assets)},
-        correlation_matrix=corr_matrix
+        correlation_matrix=corr_matrix,
+        condition_number=cond_num,
+        was_regularized=was_reg
     )
+
+
+# Alias for explicit naming
+optimize_markowitz_portfolio = optimize_portfolio
