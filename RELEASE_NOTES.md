@@ -17,8 +17,9 @@
 ### 2. Institutional Futures Accounting & Regulatory Revisions
 - Implemented `HISTORICAL_LOT_SIZE_SCHEDULE` and `get_historical_lot_size(symbol, date)` in `analytics/futures_accounting.py`.
 - Encoded SEBI Index Derivatives Framework revisions effective **November 20, 2024**:
-  - `NIFTY_FUT`: 75 (current) | 25 (Apr–Nov 2024) | 50 (2021–2024) | 75 (pre-2021)
-  - `BANKNIFTY_FUT`: 30 (current) | 15 (Jul 2023–Nov 2024) | 25 (pre-2023)
+  - `NIFTY_FUT`: Current active lot size **75** (tick value = ₹3.75) | 25 (Apr–Nov 2024) | 50 (2021–2024) | 75 (2015–2021) | 50 (pre-2015)
+  - `BANKNIFTY_FUT`: Current active lot size **30** (tick value = ₹1.50) | 15 (Jul 2023–Nov 2024) | 25 (2020–2023) | 20 (2018–2020) | 40 (2016–2018) | 30 (pre-2016)
+- Base commodity futures verified: Gold (`GC=F`, multiplier 100, tick value \$10.00) and Crude Oil (`CL=F`, multiplier 1,000, tick value \$10.00).
 - Fully dynamic, date-aware lot size tracking prevents historical margin distortion and miscalculated notional exposures.
 
 ### 3. Portfolio Optimization & Spectral Health Regularization

@@ -1,4 +1,4 @@
-# QuantEdge v3: Deployment & Operations Guide
+# QuantEdge v3.1: Deployment & Operations Guide
 
 This guide covers deployment procedures for **Streamlit Community Cloud**, local development environments, and institutional containerized infrastructures.
 

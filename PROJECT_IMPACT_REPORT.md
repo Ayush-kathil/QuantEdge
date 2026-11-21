@@ -47,7 +47,7 @@ QuantEdge Platform Architecture
 
 | Audit ID | Severity | Subsystem | Identified Vulnerability / Gap | Engineering Resolution Implemented |
 |---|---|---|---|---|
-| **AUD-01** | CRITICAL | Futures Accounting | Static lot sizes distorted historical margin and P&L across SEBI regulatory revisions | Implemented `HISTORICAL_LOT_SIZE_SCHEDULE` with date-aware lookup tracking revisions from 2018 to November 20, 2024. |
+| **AUD-01** | CRITICAL | Futures Accounting | Static lot sizes distorted historical margin and P&L across SEBI regulatory revisions | Implemented `HISTORICAL_LOT_SIZE_SCHEDULE` with date-aware lookup tracking revisions from 2000 to November 20, 2024 (Current active exchange specifications: NIFTY 50 lot size = 75, tick value = ₹3.75; BANK NIFTY lot size = 30, tick value = ₹1.50). |
 | **AUD-02** | HIGH | Portfolio Theory | Ill-conditioned sample covariance matrices ($\kappa > 10^5$) caused numerical instability in SLSQP optimizer | Implemented `audit_covariance_matrix()` and convex shrinkage regularization (`regularize_covariance_matrix()`). |
 | **AUD-03** | HIGH | Instrument Catalog | Registry categories lacked granular alignment with official NSE and BSE exchange taxonomies | Reclassified registry into 12 standardized Indian market categories + global benchmarks with backward-compatible alias resolvers. |
 | **AUD-04** | HIGH | Return Analytics | CAGR lacked standalone boundary protection against capital wipeouts and short time-horizons | Implemented standalone `compute_cagr()` supporting trading-day and calendar-day conventions, $-100\%$ wipeout caps, and short-sample safeguards. |
@@ -92,7 +92,7 @@ tests/test_walk_forward.py ......................... PASSED [100%]
 ## 5. Recruiter Evaluation Rubric (Targeted at Proprietary Trading & Hedge Funds)
 
 ### Why QuantEdge Stands Out for Proprietary Trading Desks (e.g., Futures First, Optiver, IMC, Tower Research)
-1. **Futures Domain Depth:** Demonstrates understanding that trading futures contracts is fundamentally different from trading equities—modeling notional exposures, daily MTM cash settlements, tick value mechanics, and SEBI lot size revisions.
+1. **Futures Domain Depth:** Demonstrates understanding that trading futures contracts is fundamentally different from trading equities—modeling notional exposures, daily MTM cash settlements, tick value mechanics, and SEBI lot size revisions (NIFTY 50 current lot size 75, tick value ₹3.75; BANK NIFTY current lot size 30, tick value ₹1.50).
 2. **Execution Timing Discipline:** Rejects unrealistic "instant fill" assumptions. Orders execute at the next bar's Open, factoring in commissions and slippage.
 3. **Statistical & Mathematical Rigor:** Avoids naive textbook formulas by implementing jump-robust volatility estimators (Yang-Zhang), tail-risk CVaR, and regularized covariance matrices.
 4. **Code Quality & Architecture:** Fully typed Python, modular separation of concerns, comprehensive error handling, and 100% test coverage over mathematical equations.

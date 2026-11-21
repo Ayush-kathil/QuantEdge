@@ -183,17 +183,27 @@ $$\text{Win Rate} = \frac{N_{\text{winning trades}}}{N_{\text{total closed trade
 - **Notional Contract Value:** $\text{Notional}_t = P_t \times \text{Multiplier}$
 - **Tick Value:** $\text{Tick Value} = \text{Multiplier} \times \text{Tick Size}$
 
+**Active Exchange Specifications (Current Regime):**
+- **NIFTY 50 Futures (`NIFTY_FUT` / `^NSEI`):** Multiplier = **75.0**, Tick Size = **0.05**, Tick Value = $75 \times 0.05 =$ **₹3.75** (SEBI framework effective November 20, 2024).
+- **BANK NIFTY Futures (`BANKNIFTY_FUT` / `^NSEBANK`):** Multiplier = **30.0**, Tick Size = **0.05**, Tick Value = $30 \times 0.05 =$ **₹1.50** (effective November 20, 2024).
+- **Gold Futures (`GC=F`):** Multiplier = **100.0** troy oz, Tick Size = **\$0.10**, Tick Value = **\$10.00**.
+- **Crude Oil WTI Futures (`CL=F`):** Multiplier = **1,000.0** bbl, Tick Size = **\$0.01**, Tick Value = **\$10.00**.
+
 ### Dynamic Historical Lot Size Schedule (NSE Circular Compliance)
-Regulatory lot size revisions alter contract notional value across time. Hardcoding static sizes corrupts backtest accuracy. QuantEdge implements dynamic date-aware lot size tracking:
+Regulatory lot size revisions alter contract notional value across time. Hardcoding static sizes corrupts backtest accuracy. QuantEdge implements dynamic date-aware lot size tracking via `get_historical_lot_size(symbol, date)`:
 - **NIFTY 50 Futures (`NIFTY_FUT`):**
-  - Pre-2021: **75**
+  - Pre-2015: **50**
+  - 2015 – April 2021: **75**
   - July 2021 – April 2024: **50**
   - April 2024 – November 19, 2024: **25**
-  - November 20, 2024 onwards (SEBI Index Derivatives Framework): **75**
+  - November 20, 2024 onwards (SEBI Index Derivatives Framework): **75** *(Current active lot size)*
 - **BANK NIFTY Futures (`BANKNIFTY_FUT`):**
-  - Pre-July 2023: **25**
+  - Pre-2016: **30**
+  - 2016 – 2018: **40**
+  - 2018 – 2020: **20**
+  - July 2020 – June 2023: **25**
   - July 2023 – November 19, 2024: **15**
-  - November 20, 2024 onwards: **30**
+  - November 20, 2024 onwards: **30** *(Current active lot size)*
 
 ### Daily Mark-to-Market (MTM) Variation Margin
 Positions are settled daily at the official closing price:

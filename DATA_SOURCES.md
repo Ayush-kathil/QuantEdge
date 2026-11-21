@@ -44,7 +44,10 @@ Institutional quantitative researchers must explicitly distinguish between **con
 1. **Spot Index Proxies (`^NSEI`, `^NSEBANK`):**
    - Represents the spot index level, not the tradable futures derivative.
    - Does not incur cost-of-carry premiums, backwardation/contango discounts, or dividend adjustments.
-   - For futures modeling, QuantEdge pairs spot series with explicit lot size schedules (`75` for NIFTY, `30` for BANKNIFTY) and exchange margin rates (12% initial, 8% maintenance).
+   - For futures modeling, QuantEdge pairs spot series with explicit exchange contract specifications:
+     - **NIFTY 50 Futures (`NIFTY_FUT`):** Current multiplier/lot size = **75.0**, tick size = **0.05** $\implies$ tick value = **₹3.75** (SEBI framework effective Nov 20, 2024). Dynamically resolves historical dates via `get_historical_lot_size(symbol, date)` (tracking 25, 50, and 75 lot regimes).
+     - **BANK NIFTY Futures (`BANKNIFTY_FUT`):** Current multiplier/lot size = **30.0**, tick size = **0.05** $\implies$ tick value = **₹1.50** (effective Nov 20, 2024). Dynamically resolves historical regimes (15, 20, 25, 40).
+     - Exchange margin modeling: 12% initial margin, 8% maintenance margin, and daily variation margin cash settlement.
 
 2. **Continuous Stitched Commodity Futures (`GC=F`, `CL=F`, `SI=F`):**
    - Spliced front-month contract series provided by Yahoo Finance.
